@@ -17,7 +17,7 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 .dot.busy i { background: var(--amber); box-shadow: 0 0 0 4px rgba(232,163,60,0.16); animation: pulse 1.4s ease-in-out infinite; }
 @keyframes pulse { 0%,100% { transform: scale(1); opacity: 1 } 50% { transform: scale(0.72); opacity: 0.6 } }
 
-.card { width: 392px; max-width: calc(100vw - 32px); background: var(--bg); backdrop-filter: blur(18px) saturate(1.2); -webkit-backdrop-filter: blur(18px) saturate(1.2);
+.card { width: 392px; max-width: calc(100vw - 32px); max-height: calc(100vh - 72px); overflow-y: auto; background: var(--bg); backdrop-filter: blur(18px) saturate(1.2); -webkit-backdrop-filter: blur(18px) saturate(1.2);
   border: 1px solid var(--line-strong); border-radius: 10px; box-shadow: 0 24px 60px -20px rgba(0,0,0,0.8), 0 0 0 1px rgba(0,0,0,0.6); overflow: hidden;
   animation: rise 0.28s cubic-bezier(0.16,1,0.3,1); }
 @keyframes rise { from { opacity: 0; transform: translateY(10px) scale(0.985) } to { opacity: 1; transform: none } }
@@ -90,9 +90,10 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
   box-shadow: -30px 0 80px rgba(0,0,0,0.6); display: flex; flex-direction: column; animation: slide 0.3s cubic-bezier(0.16,1,0.3,1); }
 @keyframes slide { from { transform: translateX(40px); opacity: 0 } to { transform: none; opacity: 1 } }
 .drawer-head { display: flex; align-items: center; gap: 10px; padding: 12px 16px; border-bottom: 1px solid var(--line); }
-.drawer-head .brand { font-weight: 600; }
-.drawer-head .sub { margin: 0; font-size: 11.5px; }
-.drawer-head .close { margin-left: auto; color: var(--muted); font-size: 16px; padding: 4px 8px; }
+.drawer-head .brand { font-weight: 600; white-space: nowrap; }
+.drawer-head .sub { margin: 0; font-size: 11.5px; white-space: nowrap; }
+.drawer-head select { max-width: 300px; margin-left: auto; overflow: hidden; text-overflow: ellipsis; }
+.drawer-head .close { color: var(--muted); font-size: 16px; padding: 4px 8px; }
 .tabs { display: flex; gap: 2px; padding: 0 10px; border-bottom: 1px solid var(--line); overflow-x: auto; }
 .tab { padding: 9px 10px; font-size: 11.5px; color: var(--muted); border-bottom: 2px solid transparent; white-space: nowrap; transition: color 0.15s, border-color 0.15s; }
 .tab:hover { color: var(--text); }

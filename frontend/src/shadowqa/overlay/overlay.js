@@ -111,11 +111,10 @@ export class Overlay {
         return views.renderFailed(inc);
       case "no_safe_fix":
       case "diagnosis_failed":
+      case "superseded":
         return views.renderUnsafe(inc);
       case "rolled_back":
         return views.renderRolledBack(inc);
-      case "superseded":
-        return null;
       default:
         return null;
     }

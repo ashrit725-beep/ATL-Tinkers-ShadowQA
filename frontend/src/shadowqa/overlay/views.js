@@ -20,6 +20,16 @@ const footer = (buttons) => `<div class="actions">${buttons}</div>`;
 const detailsBtn = `<button class="btn link" data-action="inspector" data-testid="sqa-details-btn">Details</button>`;
 const dismissBtn = `<button class="btn" data-action="dismiss" data-testid="sqa-dismiss-btn">Dismiss</button>`;
 
+function summaryBlock(inc) {
+  const d = inc.diagnosis || {};
+  const r = inc.risk || {};
+  if (!d.root_cause) return "";
+  const loc = d.cause_location || (inc.source_location ? `${inc.source_location.file}:${inc.source_location.line}` : "");
+  return `<div class="loc mono" data-testid="sqa-root-cause-location">${esc(shortPath(loc))}</div>
+    <p class="sub" style="margin:4px 0 0" data-testid="sqa-root-cause">${esc(d.root_cause)}</p>
+    <div class="meta" style="margin-top:8px"><span class="conf">Confidence <b>${pct(d.confidence)}</b></span>${riskBadge(r.level)}<span class="conf">${r.files || 0} file · ${r.lines || 0} lines</span></div>`;
+}
+
 export function renderCapturing(state) {
   return `${head("amber", "detected")}<div class="card-body"><p class="title" data-testid="sqa-card-title">Failure detected</p><p class="sub"><span class="spin"></span>Correlating interaction, network and runtime context…</p></div>`;
 }
@@ -65,7 +75,8 @@ export function renderValidating(inc) {
   const phase = inc.status === "applying" ? "applying" : "validating";
   return `${head("amber", phase)}<div class="card-body" data-testid="sqa-validating">
     <p class="title">${esc(inc.title)}</p>
-    ${inc.policy?.auto_applied ? `<p class="policy">Applied autonomously (LOW risk) — checkpoint created, you can undo.</p>` : `<p class="sub">Checkpoint created · patch applied · running validation</p>`}
+    ${summaryBlock(inc)}
+    ${inc.policy?.auto_applied ? `<p class="policy">Applied autonomously (LOW risk) — checkpoint created, you can undo.</p>` : `<p class="sub" style="margin-top:8px">Checkpoint created · patch applied · running validation</p>`}
     <div class="label">Validation</div>
     ${steps.length ? checklist(steps, "sqa-validation-list") : '<p class="sub"><span class="spin"></span>Preparing checks…</p>'}
     ${footer(`<button class="btn danger" data-action="rollback" data-testid="sqa-undo-btn">Undo</button>${detailsBtn}`)}</div>`;
@@ -74,6 +85,8 @@ export function renderValidating(inc) {
 export function renderReloading(inc) {
   return `${head("amber", "reloading")}<div class="card-body" data-testid="sqa-reloading">
     <p class="title">${esc(inc.title)}</p>
+    ${summaryBlock(inc)}
+    <div class="label">Validation</div>
     ${checklist((inc.validation?.steps || []).map((s) => ({ ...s, label: s.name })), "sqa-validation-list")}
     <p class="sub" style="margin-top:10px"><span class="spin"></span>Validation passed · hot reloading application to replay the original failure…</p></div>`;
 }
@@ -93,10 +106,12 @@ export function renderVerified(inc) {
   const git = inc.git;
   return `${head("green", "verified")}<div class="card-body" data-testid="sqa-verified">
     <p class="title">${esc(inc.title)}</p>
+    ${summaryBlock(inc)}
+    <div class="label">Replay of original failure</div>
     ${checklist(items, "sqa-evidence-list")}
     <div class="verdict ok" data-testid="sqa-verdict">🟢 FIX VERIFIED <span style="font-weight:400;color:var(--muted);margin-left:auto;font-size:11px">${(inc.validation?.steps || []).filter((s) => s.status === "passed").length} checks · replay ${replay.duration_ms ? `${(replay.duration_ms / 1000).toFixed(1)}s` : ""}</span></div>
     ${git ? `<p class="hint" data-testid="sqa-git-info">Branch <b class="mono">${esc(git.branch)}</b> · ${esc(git.commit)}${git.pr?.url ? ` · <a href="${esc(git.pr.url)}" target="_blank" rel="noreferrer" style="color:var(--cyan)">PR #${esc(git.pr.number)}</a>` : git.pr_error ? ` · ${esc(git.pr_error)}` : ""}</p>` : ""}
-    ${footer(`<button class="btn danger" data-action="rollback" data-testid="sqa-undo-btn">Undo</button>${git ? "" : `<button class="btn" data-action="create-pr" data-testid="sqa-create-pr-btn">${inc.pr_enabled ? "Create PR" : "Commit to branch"}</button>`}<button class="btn" data-action="dismiss" data-testid="sqa-done-btn">Done</button>${detailsBtn}`)}</div>`;
+    ${footer(`<button class="btn danger" data-action="rollback" data-testid="sqa-undo-btn">Undo</button>${git ? "" : `<button class="btn" data-action="create-pr" data-testid="sqa-create-pr-btn">${inc.pr_enabled ? "Create PR" : "Commit to branch"}</button>`}<button class="btn" data-action="dismiss" data-testid="sqa-done-btn">Done</button><button class="btn link" data-action="inspector" data-tab="patch" data-testid="sqa-details-btn">View Diff</button>`)}</div>`;
 }
 
 export function renderFailed(inc) {

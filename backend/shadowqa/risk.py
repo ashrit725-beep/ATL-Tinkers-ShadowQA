@@ -2,7 +2,7 @@
 import re
 
 SENSITIVE_PATH = [
-    (re.compile(r"(auth|login|session|token|password|permission)", re.I), 3, "touches authentication/session code"),
+    (re.compile(r"(auth|login|session|token|password|permission)", re.I), 4, "touches authentication/session code"),
     (re.compile(r"(migration|schema|models?\.py|database|/db/)", re.I), 2, "touches database/schema code"),
     (re.compile(r"(config|settings\.py|package\.json|requirements\.txt|\.env)", re.I), 2, "touches configuration"),
     (re.compile(r"(router|routes|api/)", re.I), 1, "touches an API surface"),

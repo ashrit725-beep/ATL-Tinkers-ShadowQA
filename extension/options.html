@@ -1,0 +1,29 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>ShadowQA options</title>
+    <style>
+      body { font: 13px/1.5 system-ui, sans-serif; background: #0b0c0f; color: #eef2f6; margin: 0; padding: 20px; width: 360px; }
+      h1 { font-size: 14px; margin: 0 0 12px; letter-spacing: 0.02em; }
+      label { display: block; font-size: 11px; color: #98a3b3; margin: 12px 0 4px; text-transform: uppercase; letter-spacing: 0.08em; }
+      input { width: 100%; box-sizing: border-box; background: #12151a; color: #eef2f6; border: 1px solid rgba(255,255,255,0.14); border-radius: 6px; padding: 8px 10px; font: inherit; }
+      button { margin-top: 16px; background: #eef2f6; color: #0b0c0f; border: 0; border-radius: 6px; padding: 8px 14px; font: inherit; font-weight: 600; cursor: pointer; }
+      .row { display: flex; align-items: center; gap: 8px; margin-top: 14px; }
+      .row input { width: auto; }
+      #status { color: #2fbf8a; margin-left: 10px; }
+    </style>
+  </head>
+  <body>
+    <h1>ShadowQA bridge</h1>
+    <label for="bridgeUrl">Bridge URL</label>
+    <input id="bridgeUrl" placeholder="http://localhost:8001/api/shadowqa" />
+    <label for="token">Bridge token</label>
+    <input id="token" type="password" placeholder="SHADOWQA_BRIDGE_TOKEN" />
+    <label for="appName">Application name (optional)</label>
+    <input id="appName" placeholder="My app" />
+    <div class="row"><input id="enabled" type="checkbox" checked /><span>Enabled on matching local hosts</span></div>
+    <button id="save">Save</button><span id="status"></span>
+    <script src="options.js"></script>
+  </body>
+</html>

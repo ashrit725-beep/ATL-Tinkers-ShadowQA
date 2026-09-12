@@ -1,0 +1,34 @@
+{
+  "summary": "Comprehensive backend + frontend testing of ShadowQA autonomous debugging agent embedded in Lumen Supply Co. demo. Backend: 18/18 existing pytest suite + 20/20 new integration tests (backend_integration) — all green. Frontend flagship checkout flow: full loop OBSERVE→DIAGNOSE→VALIDATE→REPLAY→VERIFIED reached in ~18s, order-confirmation rendered, Undo restored payments.js. Frontend cart-promo flow: initial run classified fix as RISK MEDIUM (correct behavior; policy auto_low held; View Fix button surfaced with 97% confidence, root cause pinned to demo/lib/promo.js:12); second run same bug auto-applied (RISK LOW) and FIX VERIFIED with cart-discount-row and 3 checks passed. Inspector via status dot opens with all 5 tabs (timeline/graph/agent/health/memory), sqa-run-qa-btn present, 8 flow rows, Ctrl+Shift+Q toggles, close btn works. Jest suite: 3/3 suites, 7/7 tests pass. Demo bugs restored at end via reset_demo.sh (verified via grep).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Products list (Edge & Craft filter)", "issues": ["One product image (Ridge Split-Timber Hatchet) rendered as alt text placeholder rather than image — appears broken/missing asset while sibling product image loads fine. Minor asset/URL issue, not a functional blocker."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_backend_integration.py",
+    "/app/test_reports/pytest/integration.xml"
+  ],
+  "action_items": [
+    "Investigate missing/broken image for product lum-04 (Ridge Split-Timber Hatchet) — appears to render alt text on Products page under Edge & Craft filter.",
+    "Cart bug (promo.js) risk classification varies between runs (LOW auto-applied vs MEDIUM manual). Not necessarily a bug (LLM-derived risk), but if the demo expects consistent auto-verify path, consider pinning risk based on file/rule signature instead of LLM heuristic."
+  ],
+  "critical_code_review_comments": [
+    "reset_demo.sh reads MONGO_URL from .env via naive `cut -d= -f2 | tr -d '\"'`: fragile if the value contains an `=` (e.g. auth db options) — consider `sed -E 's/^MONGO_URL=//'`.",
+    "Backend /api/shadowqa/workspace/file uses correct allow-list denying backend/.env, ../etc/passwd, and the SDK core.js — verified via parametrised test.",
+    "Overlay lives inside an open shadow root — good encapsulation; data-testids are consistent (sqa-*), making tests robust."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_backend_integration.py (new — 20 integration tests, all passing)"
+  ],
+  "success_rate": {"backend": "100% (18 existing + 20 new = 38/38)", "frontend": "100% for the specified critical flows (flagship checkout, cart promo, inspector, Jest); Store UX partially verified (products/filter/detail/orders/settings save/logout not all executed end-to-end due to session drop in one run)"},
+  "test_credentials": "demo@lumen.supply / lumen-demo ; bridge token sqa_bridge_7f3c9a1e4b2d ; card 4242 4242 4242 4242 12/28 123",
+  "seed_data_creation": "none — used existing demo seed",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "reset_demo.sh at /app/scripts/reset_demo.sh restores both intentional bugs and clears sqa_* Mongo collections; always run it after any verified fix. The SDK triggers location.reload() ~2s post-validation — do not navigate during validating/replaying. Bridge auth header: X-ShadowQA-Token. Backend tests are in /app/backend/tests/. Cart promo fix risk classification is LLM-derived and may flip LOW/MEDIUM between runs.",
+  "rca of the issue": "N/A — no blocking issues found. All requested flows behaved per spec. The one 'unexpected' event (cart fix classified MEDIUM on first attempt, blocking auto-apply) is by-design under the `auto_low` policy: the Diagnosed card correctly surfaced View Fix/Dismiss/Details, exactly as advertised for MEDIUM risk."
+}

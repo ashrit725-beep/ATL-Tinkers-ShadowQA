@@ -17,6 +17,7 @@ export class QARunner {
     const returnTo = location.pathname;
     try {
       const { flows } = await this.bridge.getFlows();
+      const routes = [...new Set(flows.map((f) => f.steps?.[0]?.route).filter(Boolean))];
       for (const flow of flows) {
         onProgress?.({ current: flow.name, results: results.slice(), total: flows.length });
         const t0 = Date.now();
@@ -24,6 +25,15 @@ export class QARunner {
         this.detector.onSuppressedFailure = (f) => {
           failure = failure || f;
         };
+        // Flows that start on the current route need a fresh mount: hop to a neutral route first so effects/requests re-run.
+        const first = flow.steps?.[0];
+        if (first?.action === "navigate" && first.route === location.pathname) {
+          const neutral = routes.find((r) => r !== location.pathname);
+          if (neutral) {
+            await this.replay.execute({ action: "navigate", route: neutral }, {});
+            await this.replay.settle();
+          }
+        }
         const res = await this.replay.run({ steps: flow.steps, expectations: flow.expectations }, { values: {} });
         const entry = { name: flow.name, source: flow.source, status: res.status, duration_ms: Date.now() - t0, steps: res.steps, evidence: res.evidence };
         if (res.status === "failed") {

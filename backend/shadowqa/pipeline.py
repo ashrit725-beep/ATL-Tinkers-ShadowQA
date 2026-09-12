@@ -3,6 +3,7 @@ import asyncio
 import logging
 import time
 import uuid
+from datetime import datetime, timedelta, timezone
 
 from . import correlation, git_ops, memory, orchestrator, risk
 from .config import settings
@@ -20,8 +21,10 @@ APPLIED_UNVERIFIED = {"applying", "validating", "awaiting_replay", "replaying"}
 
 
 async def _supersede_stale(ws) -> None:
-    """A new incident supersedes older open ones; applied-but-unverified patches are reverted (never leave the workspace worse)."""
-    stale = await incidents.find({"status": {"$nin": list(TERMINAL)}}, {"_id": 0, "id": 1, "status": 1, "checkpoint": 1}).to_list(20)
+    """Stuck incidents are superseded; applied-but-unverified patches older than 10 min are reverted (never leave the workspace worse)."""
+    cutoff = datetime.now(timezone.utc) - timedelta(minutes=10)
+    stale = await incidents.find({"status": {"$nin": list(TERMINAL)}, "updated_at": {"$lt": cutoff.isoformat()}},
+                                 {"_id": 0, "id": 1, "status": 1, "checkpoint": 1}).to_list(20)
     for inc in stale:
         fields = {"status": "superseded"}
         if inc.get("status") in APPLIED_UNVERIFIED and inc.get("checkpoint"):
@@ -130,7 +133,8 @@ async def run_diagnosis(incident_id: str) -> None:
     await audit("diagnosis.completed", incident_id, status=fields["status"], confidence=diagnosis["confidence"],
                 risk=(fields.get("risk") or {}).get("level"), model=diagnosis["model"])
 
-    if plan and settings.autonomy == "auto_low" and fields["risk"]["autonomous_eligible"]:
+    # Autonomous application only for failures observed live with the developer present; QA-discovered failures queue for review.
+    if plan and settings.autonomy == "auto_low" and fields["risk"]["autonomous_eligible"] and inc.get("source") != "qa":
         await update_incident(incident_id, {"policy.auto_applied": True})
         await audit("policy.autonomous_apply", incident_id, risk="LOW", confidence=diagnosis["confidence"])
         await run_apply(incident_id, actor="policy:auto_low")
@@ -207,7 +211,7 @@ async def rollback(incident_id: str, actor: str = "developer") -> dict | None:
     inc = await get_incident(incident_id)
     if not inc:
         return None
-    if inc.get("checkpoint") and inc.get("status") in ("verified", "awaiting_replay", "replaying", "validating", "applying"):
+    if inc.get("checkpoint") and inc.get("status") in ("verified", "committed", "awaiting_replay", "replaying", "validating", "applying"):
         restore_files(get_workspace(), inc["checkpoint"]["files"])
         telemetry = dict(inc.get("telemetry") or {})
         telemetry["rollback"] = True
