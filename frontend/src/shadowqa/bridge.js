@@ -5,11 +5,12 @@ export class Bridge {
     this.token = token;
   }
 
-  async call(method, path, body) {
+  async call(method, path, body, { keepalive = false } = {}) {
     const res = await fetch(`${this.base}${path}`, {
       method,
       headers: { "Content-Type": "application/json", "X-ShadowQA-Token": this.token || "" },
       body: body === undefined ? undefined : JSON.stringify(body),
+      keepalive,
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(typeof data.detail === "string" ? data.detail : `bridge ${res.status}`);
@@ -29,10 +30,14 @@ export class Bridge {
   createPr = (id) => this.call("POST", `/incidents/${id}/git/pr`);
   readFile = (path, line) => this.call("GET", `/workspace/file?path=${encodeURIComponent(path)}${line ? `&line=${line}` : ""}`);
   getMemory = () => this.call("GET", "/memory");
-  observe = (payload) => this.call("POST", "/memory/observe", payload);
+  observe = (payload) => this.call("POST", "/memory/observe", payload, { keepalive: true });
   getFlows = () => this.call("GET", "/qa/flows");
   postQaRun = (run) => this.call("POST", "/qa/runs", run);
   latestQaRun = () => this.call("GET", "/qa/runs/latest");
   getAudit = () => this.call("GET", "/audit?limit=60");
   getTelemetry = () => this.call("GET", "/telemetry");
+  getSettings = () => this.call("GET", "/settings");
+  putSettings = (body) => this.call("PUT", "/settings", body);
+  getScenarios = () => this.call("GET", "/demo/scenarios");
+  resetDemo = () => this.call("POST", "/demo/reset");
 }

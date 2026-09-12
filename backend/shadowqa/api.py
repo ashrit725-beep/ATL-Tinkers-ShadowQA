@@ -5,7 +5,7 @@ import uuid
 from fastapi import APIRouter, BackgroundTasks, Header, HTTPException, Query
 from pydantic import BaseModel
 
-from . import git_ops, memory, pipeline, qa
+from . import demo, git_ops, memory, pipeline, qa
 from .config import settings
 from .db import audit, audit_log, get_incident, incidents, llm_log, update_incident
 from .workspace import WorkspaceError, get_workspace
@@ -207,7 +207,8 @@ async def read_audit(limit: int = Query(default=60, le=300), x_shadowqa_token: s
 @router.get("/telemetry")
 async def telemetry(x_shadowqa_token: str | None = Header(default=None)):
     require_token(x_shadowqa_token)
-    docs = await incidents.find({}, {"_id": 0, "id": 1, "status": 1, "telemetry": 1, "created_at": 1, "title": 1}).sort("created_at", -1).to_list(50)
+    docs = await incidents.find({}, {"_id": 0, "id": 1, "status": 1, "telemetry": 1, "created_at": 1, "title": 1, "context_signals": 1,
+                                     "risk.level": 1, "diagnosis.confidence": 1, "source": 1}).sort("created_at", -1).to_list(50)
     llm_calls = await llm_log.find({}, {"_id": 0}).sort("ts", -1).to_list(30)
     keys = ["capture_to_bridge_ms", "correlation_ms", "ai_ms", "patch_ms", "validation_ms", "replay_ms", "total_ms"]
     agg: dict[str, list[int]] = {k: [] for k in keys}
@@ -220,7 +221,41 @@ async def telemetry(x_shadowqa_token: str | None = Header(default=None)):
     statuses: dict[str, int] = {}
     for d in docs:
         statuses[d.get("status", "?")] = statuses.get(d.get("status", "?"), 0) + 1
+    signal_counts = [len(d.get("context_signals") or []) for d in docs if d.get("context_signals")]
     return {"incidents": docs, "averages": averages, "statuses": statuses,
             "rollbacks": sum(1 for d in docs if (d.get("telemetry") or {}).get("rollback")),
             "verified": statuses.get("verified", 0) + statuses.get("committed", 0),
+            "avg_signals": (sum(signal_counts) / len(signal_counts)) if signal_counts else None,
             "llm_calls": llm_calls, "models": {"primary": settings.primary_model, "fallback": settings.fallback_model}}
+
+
+class SettingsUpdate(BaseModel):
+    autonomy: str
+
+
+@router.get("/settings")
+async def read_settings(x_shadowqa_token: str | None = Header(default=None)):
+    require_token(x_shadowqa_token)
+    return {"autonomy": settings.autonomy, "policies": ["approve_all", "auto_low"], "models": {"primary": settings.primary_model, "fallback": settings.fallback_model}}
+
+
+@router.put("/settings")
+async def write_settings(body: SettingsUpdate, x_shadowqa_token: str | None = Header(default=None)):
+    require_token(x_shadowqa_token)
+    if body.autonomy not in ("approve_all", "auto_low"):
+        raise HTTPException(status_code=400, detail="autonomy must be approve_all or auto_low")
+    settings.autonomy = body.autonomy
+    await audit("policy.changed", actor="developer", autonomy=body.autonomy)
+    return {"autonomy": settings.autonomy}
+
+
+@router.get("/demo/scenarios")
+async def demo_scenarios(x_shadowqa_token: str | None = Header(default=None)):
+    require_token(x_shadowqa_token)
+    return {"scenarios": demo.bug_state(get_workspace())}
+
+
+@router.post("/demo/reset")
+async def demo_reset(x_shadowqa_token: str | None = Header(default=None)):
+    require_token(x_shadowqa_token)
+    return await demo.reset(get_workspace())

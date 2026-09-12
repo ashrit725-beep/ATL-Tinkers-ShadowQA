@@ -36,11 +36,12 @@
       this.base = bridgeUrl.replace(/\/$/, "");
       this.token = token;
     }
-    async call(method, path, body) {
+    async call(method, path, body, { keepalive = false } = {}) {
       const res = await fetch(`${this.base}${path}`, {
         method,
         headers: { "Content-Type": "application/json", "X-ShadowQA-Token": this.token || "" },
-        body: body === void 0 ? void 0 : JSON.stringify(body)
+        body: body === void 0 ? void 0 : JSON.stringify(body),
+        keepalive
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(typeof data.detail === "string" ? data.detail : `bridge ${res.status}`);
@@ -59,12 +60,16 @@
     createPr = (id) => this.call("POST", `/incidents/${id}/git/pr`);
     readFile = (path, line) => this.call("GET", `/workspace/file?path=${encodeURIComponent(path)}${line ? `&line=${line}` : ""}`);
     getMemory = () => this.call("GET", "/memory");
-    observe = (payload) => this.call("POST", "/memory/observe", payload);
+    observe = (payload) => this.call("POST", "/memory/observe", payload, { keepalive: true });
     getFlows = () => this.call("GET", "/qa/flows");
     postQaRun = (run) => this.call("POST", "/qa/runs", run);
     latestQaRun = () => this.call("GET", "/qa/runs/latest");
     getAudit = () => this.call("GET", "/audit?limit=60");
     getTelemetry = () => this.call("GET", "/telemetry");
+    getSettings = () => this.call("GET", "/settings");
+    putSettings = (body) => this.call("PUT", "/settings", body);
+    getScenarios = () => this.call("GET", "/demo/scenarios");
+    resetDemo = () => this.call("POST", "/demo/reset");
   };
 
   // src/shadowqa/dom.js
@@ -234,6 +239,11 @@
       clearTimeout(this.timer);
       this.timer = setTimeout(() => this.onIncident(failure), 400);
     }
+    /** After a verdict or an explicit developer action the same failure must be detectable again immediately (e.g. retry after Undo). */
+    reset() {
+      this.recent.clear();
+      this.active = false;
+    }
     handleNetwork(item) {
       if (this.suppressed || this.active) return;
       if ((item.status || 0) < 500 && item.status !== 0) return;
@@ -277,7 +287,10 @@
     }
     start() {
       this.timer = setInterval(() => this.flush(), 2e4);
-      window.addEventListener("pagehide", () => this.flush());
+    }
+    stop() {
+      clearInterval(this.timer);
+      this.timer = null;
     }
     async flush() {
       if (!this.routes.size && !this.apis.size && !this.components.size) return;
@@ -402,13 +415,21 @@
       item.ok = status >= 200 && status < 400;
       ctx.inflight = Math.max(0, ctx.inflight - 1);
       const done = () => ctx.onNetwork?.(item);
-      if (!item.ok && snippetPromise) {
+      if (snippetPromise) {
         snippetPromise.then((text) => {
-          item.response_snippet = String(text || "").slice(0, 1500);
+          item.response_snippet = item.ok ? sanitizeSnippet(text) : String(text || "").slice(0, 1500);
           done();
         }, done);
       } else done();
     };
+    const sanitizeSnippet = (text) => {
+      try {
+        return JSON.stringify(sanitizeObject(JSON.parse(text))).slice(0, 600);
+      } catch {
+        return String(text || "").slice(0, 200);
+      }
+    };
+    const isJson = (res) => /json/i.test(res.headers.get("content-type") || "");
     const originalFetch = window.fetch;
     window.fetch = function shadowqaFetch(input, init) {
       const url = typeof input === "string" ? input : input?.url || String(input);
@@ -420,7 +441,7 @@
       return originalFetch.apply(this, arguments).then(
         (res) => {
           item.content_type = res.headers.get("content-type") || void 0;
-          finish(item, res.status, res.ok ? null : res.clone().text());
+          finish(item, res.status, !res.ok || isJson(res) ? res.clone().text() : null);
           return res;
         },
         (err) => {
@@ -557,6 +578,7 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 .btn.link { border: 0; background: none; color: var(--muted); padding: 7px 4px; margin-left: auto; }
 .btn.link:hover { color: var(--text); }
 .btn:disabled { opacity: 0.45; cursor: default; }
+a.btn { color: inherit; text-decoration: none; display: inline-flex; align-items: center; }
 .spin { display: inline-block; width: 12px; height: 12px; border: 1.5px solid var(--line-strong); border-top-color: var(--cyan); border-radius: 999px; animation: spin 0.8s linear infinite; vertical-align: -2px; margin-right: 6px; }
 @keyframes spin { to { transform: rotate(360deg) } }
 
@@ -586,6 +608,24 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 .factors { margin: 6px 0 0; padding-left: 16px; color: var(--muted); font-size: 11.5px; }
 .factors li { margin: 1px 0; }
 .policy { font-size: 11px; color: var(--amber); margin-top: 6px; }
+.dim { color: var(--dim); }
+
+.signals { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin-top: 10px; }
+.sig-count { font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--cyan); margin-right: 4px; }
+.sig { font-size: 10.5px; padding: 1px 7px; border-radius: 999px; border: 1px solid rgba(55,182,211,0.25); background: rgba(55,182,211,0.07); color: var(--muted); white-space: nowrap; max-width: 160px; overflow: hidden; text-overflow: ellipsis; }
+
+.ba { display: grid; gap: 6px; margin-top: 12px; padding: 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--sub); }
+.ba-row { display: grid; grid-template-columns: 46px minmax(0, 1fr); gap: 8px; align-items: start; }
+.ba-k { font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--dim); padding-top: 3px; }
+.ba-row.ok .ba-k { color: var(--green); }
+.ba-row.bad .ba-k { color: #ff8d7f; }
+.ba-v { display: flex; flex-wrap: wrap; gap: 4px 6px; align-items: center; font-size: 11.5px; }
+.ba-v .node { padding: 2px 7px; border: 1px solid var(--line); border-radius: 4px; background: var(--card); color: var(--text); white-space: nowrap; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+.ba-v .node.bad { border-color: rgba(240,83,63,0.5); color: #ff8d7f; }
+.ba-v .arrow { color: var(--dim); }
+
+.pr { margin-top: 8px; padding: 10px 12px; border: 1px solid rgba(47,191,138,0.3); border-radius: 6px; background: rgba(47,191,138,0.06); }
+.pr-title { font-size: 12.5px; color: var(--text); }
 
 .drawer { position: fixed; top: 0; right: 0; bottom: 0; width: 720px; max-width: 100vw; background: #090a0d; border-left: 1px solid var(--line-strong); z-index: 2147483001;
   box-shadow: -30px 0 80px rgba(0,0,0,0.6); display: flex; flex-direction: column; animation: slide 0.3s cubic-bezier(0.16,1,0.3,1); }
@@ -718,8 +758,10 @@ pre.raw { white-space: pre-wrap; word-break: break-word; color: var(--muted); fo
   function diagnosis(inc) {
     if (!inc) return empty("No incident selected.");
     const d = inc.diagnosis;
-    if (!d) return `<p class="empty">${inc.status === "diagnosing" || inc.status === "captured" ? "Diagnosis in progress\u2026" : inc.error || "No diagnosis available."}</p>`;
-    return `<h3>User intent</h3><p><b>${escapeHtml(d.intent)}</b></p>
+    const signals = inc.context_signals || [];
+    const signalsBlock = signals.length ? `<h3>In-situ context \xB7 ${signals.length} signals a chatbox never receives</h3><ul class="factors" data-testid="sqa-diag-signals">${signals.map((s) => `<li><span class="mono" style="color:var(--dim)">${escapeHtml(s.kind)}</span> \xB7 ${escapeHtml(s.label)}</li>`).join("")}</ul>` : "";
+    if (!d) return `${signalsBlock}<p class="empty">${inc.status === "diagnosing" || inc.status === "captured" ? "Diagnosis in progress\u2026" : inc.error || "No diagnosis available."}</p>`;
+    return `${signalsBlock}<h3>User intent</h3><p><b>${escapeHtml(d.intent)}</b></p>
     <h3>Root cause</h3><p data-testid="sqa-diag-root-cause"><b>${escapeHtml(d.root_cause)}</b></p><p>${escapeHtml(d.explanation)}</p>
     <div class="row"><span>Symptom: <b class="mono">${escapeHtml(shortPath(d.symptom_location))}</b></span><span>Cause: <b class="mono">${escapeHtml(shortPath(d.cause_location))}</b></span></div>
     <h3>Hypotheses</h3><table class="grid"><tbody>${(d.hypotheses || []).map((h) => `<tr><td>${escapeHtml(h.cause)}</td><td class="mono" style="width:60px">${pct(h.probability)}</td></tr>`).join("")}</tbody></table>
@@ -752,9 +794,12 @@ pre.raw { white-space: pre-wrap; word-break: break-word; color: var(--muted); fo
   function health(data) {
     const run = data.qaRun;
     const flows = data.flows || [];
-    return `<div class="row"><button class="btn primary" data-action="run-qa" data-testid="sqa-run-qa-btn">Run QA sweep</button><span style="color:var(--muted)">${flows.length} flows (${flows.filter((f) => f.source === "declared").length} declared \xB7 ${flows.filter((f) => f.source === "learned").length} learned regression)</span></div>
+    const scenarios = data.scenarios || [];
+    return `<div class="row"><button class="btn primary" data-action="run-qa" data-testid="sqa-run-qa-btn">Run QA sweep</button><span style="color:var(--muted)">${flows.length} flows (${flows.filter((f) => f.source === "declared").length} declared \xB7 ${flows.filter((f) => f.source === "learned").length} learned regression)</span><a class="btn" href="/shadowqa" data-testid="sqa-open-center-link" style="margin-left:auto;text-decoration:none">Command Center \u2197</a></div>
     ${run?.flows ? `<h3>Application health \xB7 ${escapeHtml(run.at)}</h3><div class="health" data-testid="sqa-health-grid">${run.flows.map((f) => `<div class="hcard ${escapeHtml(f.status)}"><div class="hn">${statusIcon(f.status)}${escapeHtml(f.name)}</div><div class="hd">${f.error ? escapeHtml(f.error) : `${(f.steps || []).length} steps \xB7 ${ms(f.duration_ms)}`}</div>${f.incident_id ? `<button class="btn" data-action="investigate" data-id="${escapeHtml(f.incident_id)}">Investigate</button>` : ""}</div>`).join("")}</div>` : `<p class="empty" style="margin-top:12px">No QA sweep recorded yet.</p>`}
-    <h3>Flows</h3><table class="grid"><tbody>${flows.map((f) => `<tr><td>${escapeHtml(f.name)}</td><td style="color:var(--dim)">${escapeHtml(f.source)}</td><td style="color:var(--dim)">${(f.steps || []).length} steps</td></tr>`).join("")}</tbody></table>`;
+    <h3>Flows</h3><table class="grid"><tbody>${flows.map((f) => `<tr><td>${escapeHtml(f.name)}</td><td style="color:var(--dim)">${escapeHtml(f.source)}</td><td style="color:var(--dim)">${(f.steps || []).length} steps</td></tr>`).join("")}</tbody></table>
+    ${scenarios.length ? `<h3>Demo scenarios</h3><table class="grid" data-testid="sqa-scenarios"><tbody>${scenarios.map((s) => `<tr><td>${escapeHtml(s.title)}</td><td class="mono" style="color:var(--dim)">${escapeHtml(shortPath(s.file))}</td><td class="${s.bug_present ? "s-warn" : "s-ok"}" data-testid="sqa-scenario-${escapeHtml(s.id)}">${s.bug_present ? "bug present" : "fixed"}</td></tr>`).join("")}</tbody></table>
+    <div class="row" style="margin-top:10px"><button class="btn" data-action="reset-demo" data-testid="sqa-reset-demo-btn">Reset demo bugs</button><span style="color:var(--dim);font-size:11px">Restores the three intentional bugs from pristine copies and clears ShadowQA memory.</span></div>` : ""}`;
   }
   function memory(data) {
     const m = data.memory;
@@ -781,10 +826,9 @@ pre.raw { white-space: pre-wrap; word-break: break-word; color: var(--muted); fo
     const inc = state.incident;
     const tab = state.tab;
     const panes = { timeline: () => timeline(inc), graph: () => graph(inc), network: () => network(inc), source: () => source(inc, state.sourceFile), diagnosis: () => diagnosis(inc), patch: () => patch(inc), validation: () => validation(inc), replay: () => replay(inc), health: () => health(state), memory: () => memory(state), agent: () => agent(state, inc) };
-    return `<div class="drawer" data-testid="sqa-inspector">
-    <div class="drawer-head"><span class="led"></span><span class="brand">ShadowQA Inspector</span><p class="sub mono">${inc ? `${escapeHtml(inc.id)} \xB7 ${escapeHtml(inc.status)}` : "no active incident"}</p>${state.recent?.length ? `<select class="btn mono" data-action="select-incident" data-testid="sqa-incident-select">${state.recent.map((r) => `<option value="${escapeHtml(r.id)}" ${inc && r.id === inc.id ? "selected" : ""}>${escapeHtml(r.created_at.slice(11, 19))} \xB7 ${escapeHtml(r.title)} \xB7 ${escapeHtml(r.status)}</option>`).join("")}</select>` : ""}<button class="close" data-action="close-inspector" data-testid="sqa-inspector-close">\u2715</button></div>
+    return `<div class="drawer-head"><span class="led"></span><span class="brand">ShadowQA Inspector</span><p class="sub mono">${inc ? `${escapeHtml(inc.id)} \xB7 ${escapeHtml(inc.status)}` : "no active incident"}</p>${state.recent?.length ? `<select class="btn mono" data-action="select-incident" data-testid="sqa-incident-select">${state.recent.map((r) => `<option value="${escapeHtml(r.id)}" ${inc && r.id === inc.id ? "selected" : ""}>${escapeHtml(r.created_at.slice(11, 19))} \xB7 ${escapeHtml(r.title)} \xB7 ${escapeHtml(r.status)}</option>`).join("")}</select>` : ""}<button class="close" data-action="close-inspector" data-testid="sqa-inspector-close">\u2715</button></div>
     <div class="tabs">${TABS.map(([id, label]) => `<button class="tab ${tab === id ? "active" : ""}" data-action="tab" data-tab="${id}" data-testid="sqa-tab-${id}">${label}</button>`).join("")}</div>
-    <div class="pane">${(panes[tab] || panes.timeline)()}</div></div>`;
+    <div class="pane">${(panes[tab] || panes.timeline)()}</div>`;
   }
 
   // src/shadowqa/overlay/views.js
@@ -811,15 +855,41 @@ pre.raw { white-space: pre-wrap; word-break: break-word; color: var(--muted); fo
     <p class="sub" style="margin:4px 0 0" data-testid="sqa-root-cause">${escapeHtml(d.root_cause)}</p>
     <div class="meta" style="margin-top:8px"><span class="conf">Confidence <b>${pct(d.confidence)}</b></span>${riskBadge(r.level)}<span class="conf">${r.files || 0} file \xB7 ${r.lines || 0} lines</span></div>`;
   }
+  var SIGNAL_CHIP = {
+    interaction: () => "your click",
+    inputs: (l) => l.match(/^\d+ fields?/)?.[0] || "form fields",
+    route: (l) => l.replace(/^Route /, ""),
+    component: (l) => l.match(/<[^>]+>/)?.[0] || "component",
+    network: (l) => l.match(/HTTP \d+/)?.[0] || "network",
+    network_window: (l) => l.match(/^\d+ requests/)?.[0] || "requests",
+    source: (l) => /source-mapped/.test(l) ? "source map" : "stack",
+    state: () => "app state",
+    console: (l) => l.match(/^\d+ console errors?/)?.[0] || "console",
+    workspace: (l) => l.match(/^\d+ workspace files?/)?.[0] || "workspace",
+    memory: () => "memory"
+  };
+  function signalsLine(inc) {
+    const signals = inc.context_signals || [];
+    if (!signals.length) return "";
+    const chips = signals.map((s) => `<span class="sig" title="${escapeHtml(s.label)}">${escapeHtml((SIGNAL_CHIP[s.kind] || (() => s.kind))(s.label))}</span>`).join("");
+    return `<div class="signals" data-testid="sqa-context-signals"><span class="sig-count">${signals.length} in-app signals</span>${chips}</div>`;
+  }
   function renderCapturing(state) {
     return `${head("amber", "detected")}<div class="card-body"><p class="title" data-testid="sqa-card-title">Failure detected</p><p class="sub"><span class="spin"></span>Correlating interaction, network and runtime context\u2026</p></div>`;
+  }
+  var STAGES = ["Reading the source-mapped frames", "Retrieving the relevant workspace files", "Reasoning about intent vs. behaviour", "Drafting the smallest safe patch", "Assessing risk and confidence"];
+  function elapsedLine(inc) {
+    const secs = Math.max(0, Math.round((Date.now() - new Date(inc.created_at).getTime()) / 1e3));
+    const stage = STAGES[Math.min(STAGES.length - 1, Math.floor(secs / 5))];
+    return `<p class="sub" style="margin-top:12px"><span class="spin"></span><span data-volatile="stage">${escapeHtml(stage)}</span>\u2026 <span class="dim mono" data-testid="sqa-elapsed" data-volatile="elapsed">${secs}s</span></p>`;
   }
   function renderAnalyzing(inc) {
     return `${head("amber", "analyzing")}<div class="card-body" data-testid="sqa-analyzing">
     <p class="title" data-testid="sqa-card-title">${escapeHtml(inc.title)}</p>
     ${contextChain(inc)}
     ${locationLine(inc)}
-    <p class="sub" style="margin-top:12px"><span class="spin"></span>Diagnosing root cause\u2026</p>
+    ${signalsLine(inc)}
+    ${elapsedLine(inc)}
     ${footer(`${dismissBtn}${detailsBtn}`)}</div>`;
   }
   function renderDiagnosed(inc) {
@@ -832,7 +902,8 @@ pre.raw { white-space: pre-wrap; word-break: break-word; color: var(--muted); fo
     <div class="loc mono" data-testid="sqa-root-cause-location">${escapeHtml(shortPath(loc))}</div>
     <p class="sub" style="margin-top:6px" data-testid="sqa-root-cause">${escapeHtml(d.root_cause || "")}</p>
     <div class="meta"><span class="conf" data-testid="sqa-confidence">Confidence <b>${pct(d.confidence)}</b></span>${riskBadge(r.level)}<span class="conf">${r.files || 0} file \xB7 ${r.lines || 0} lines</span></div>
-    ${inc.policy?.auto_applied ? `<p class="policy">LOW risk \xB7 eligible for autonomous application</p>` : ""}
+    ${signalsLine(inc)}
+    ${inc.policy?.auto_applied ? `<p class="policy">LOW risk \xB7 eligible for autonomous application</p>` : `<p class="policy">${escapeHtml(r.level || "")} risk \u2014 your approval is required before anything is written.</p>`}
     ${footer(`<button class="btn primary" data-action="view-fix" data-testid="sqa-view-fix-btn">View Fix</button>${dismissBtn}${detailsBtn}`)}</div>`;
   }
   function renderFix(inc) {
@@ -874,18 +945,52 @@ pre.raw { white-space: pre-wrap; word-break: break-word; color: var(--muted); fo
     ${checklist(list, "sqa-replay-list")}
     <p class="hint">ShadowQA is driving the application. Evidence is collected live.</p></div>`;
   }
+  function beforeAfter(inc) {
+    const before = (inc.graph?.nodes || []).filter((n) => ["user_action", "network_response", "runtime_error"].includes(n.type)).map((n) => n.label);
+    const replay2 = inc.replay || {};
+    const okResp = (replay2.evidence || []).find((e) => /^Response/.test(e.label));
+    const ui = (replay2.evidence || []).find((e) => /UI reached/.test(e.label));
+    const after = [inc.trigger ? `${(inc.trigger.kind || "click").replace(/^./, (c) => c.toUpperCase())} '${inc.trigger.target?.text || "element"}'` : "Same gesture", okResp ? okResp.label : null, ui?.ok ? "expected UI state" : null, "no runtime errors"].filter(Boolean);
+    if (!before.length) return "";
+    return `<div class="ba" data-testid="sqa-before-after">
+    <div class="ba-row bad"><span class="ba-k">Before</span><span class="ba-v">${before.map((l) => `<span class="node bad">${escapeHtml(l)}</span>`).join('<span class="arrow">\u2192</span>')}</span></div>
+    <div class="ba-row ok"><span class="ba-k">After</span><span class="ba-v">${after.map((l) => `<span class="node">${escapeHtml(l)}</span>`).join('<span class="arrow">\u2192</span>')}</span></div>
+  </div>`;
+  }
   function renderVerified(inc) {
     const replay2 = inc.replay || {};
     const items = [...replay2.steps || [], ...replay2.evidence || []];
     const git = inc.git;
+    const t = inc.telemetry || {};
     return `${head("green", "verified")}<div class="card-body" data-testid="sqa-verified">
     <p class="title">${escapeHtml(inc.title)}</p>
     ${summaryBlock(inc)}
+    ${signalsLine(inc)}
+    ${beforeAfter(inc)}
     <div class="label">Replay of original failure</div>
     ${checklist(items, "sqa-evidence-list")}
-    <div class="verdict ok" data-testid="sqa-verdict">\u{1F7E2} FIX VERIFIED <span style="font-weight:400;color:var(--muted);margin-left:auto;font-size:11px">${(inc.validation?.steps || []).filter((s) => s.status === "passed").length} checks \xB7 replay ${replay2.duration_ms ? `${(replay2.duration_ms / 1e3).toFixed(1)}s` : ""}</span></div>
+    <div class="verdict ok" data-testid="sqa-verdict">\u{1F7E2} FIX VERIFIED <span style="font-weight:400;color:var(--muted);margin-left:auto;font-size:11px">${(inc.validation?.steps || []).filter((s) => s.status === "passed").length} checks \xB7 replay ${replay2.duration_ms ? `${(replay2.duration_ms / 1e3).toFixed(1)}s` : ""}${t.total_ms ? ` \xB7 ${(t.total_ms / 1e3).toFixed(0)}s end-to-end` : ""}</span></div>
+    <p class="hint" data-testid="sqa-no-prompt">No prompt was written. ShadowQA started from the failure it observed in this tab \u2014 not from a task you described.</p>
     ${git ? `<p class="hint" data-testid="sqa-git-info">Branch <b class="mono">${escapeHtml(git.branch)}</b> \xB7 ${escapeHtml(git.commit)}${git.pr?.url ? ` \xB7 <a href="${escapeHtml(git.pr.url)}" target="_blank" rel="noreferrer" style="color:var(--cyan)">PR #${escapeHtml(git.pr.number)}</a>` : git.pr_error ? ` \xB7 ${escapeHtml(git.pr_error)}` : ""}</p>` : ""}
     ${footer(`<button class="btn danger" data-action="rollback" data-testid="sqa-undo-btn">Undo</button>${git ? "" : `<button class="btn" data-action="create-pr" data-testid="sqa-create-pr-btn">${inc.pr_enabled ? "Create PR" : "Commit to branch"}</button>`}<button class="btn" data-action="dismiss" data-testid="sqa-done-btn">Done</button><button class="btn link" data-action="inspector" data-tab="patch" data-testid="sqa-details-btn">View Diff</button>`)}</div>`;
+  }
+  function renderCommitted(inc) {
+    const git = inc.git || {};
+    const d = inc.diagnosis || {};
+    const files = (inc.patch?.files || []).map((f) => `${shortPath(f.path)} (+${f.added} \u2212${f.removed})`);
+    return `${head("green", git.pr?.url ? "pull request" : "committed")}<div class="card-body" data-testid="sqa-committed">
+    <p class="title">${escapeHtml(inc.title)}</p>
+    <div class="pr">
+      <div class="pr-title mono" data-testid="sqa-pr-title">${escapeHtml(git.pr_title || `ShadowQA: ${inc.title}`)}</div>
+      <div class="kv" style="margin-top:8px"><span class="k">Branch</span><span class="mono">${escapeHtml(git.branch || "\u2014")}</span><span class="k">Commit</span><span class="mono">${escapeHtml(git.commit || "\u2014")}</span><span class="k">Base</span><span class="mono">${escapeHtml(git.base_branch || "\u2014")}</span><span class="k">Files</span><span class="mono">${escapeHtml(files.join(", ") || "\u2014")}</span></div>
+      ${git.pr?.url ? `<a class="btn primary" style="display:inline-flex;margin-top:10px" href="${escapeHtml(git.pr.url)}" target="_blank" rel="noreferrer" data-testid="sqa-pr-link">Open PR #${escapeHtml(git.pr.number)} \u2197</a>` : `<p class="hint" data-testid="sqa-pr-error">${escapeHtml(git.pr_error || "")}</p>`}
+    </div>
+    <div class="label">PR summary</div>
+    <ul class="factors" data-testid="sqa-pr-summary"><li>Root cause: ${escapeHtml(d.root_cause || "\u2014")}</li><li>Validation: ${(inc.validation?.steps || []).map((s) => `${escapeHtml(s.name)} ${s.status === "passed" ? "\u2713" : "\u2717"}`).join(" \xB7 ")}</li><li>Replay: ${(inc.replay?.evidence || []).filter((e) => e.ok).length}/${(inc.replay?.evidence || []).length} evidence checks passed</li><li>Confidence ${pct(d.confidence)} \xB7 ${escapeHtml(d.model || "")}</li></ul>
+    ${footer(`<button class="btn danger" data-action="rollback" data-testid="sqa-undo-btn">Undo</button><button class="btn" data-action="dismiss" data-testid="sqa-done-btn">Done</button><button class="btn link" data-action="inspector" data-tab="patch" data-testid="sqa-details-btn">View Diff</button>`)}</div>`;
+  }
+  function renderToast(text) {
+    return `${head("green", "shadowqa")}<div class="card-body" data-testid="sqa-toast"><p class="sub" style="margin:0">${escapeHtml(text)}</p></div>`;
   }
   function renderFailed(inc) {
     const isValidation = inc.status === "validation_failed";
@@ -940,7 +1045,7 @@ pre.raw { white-space: pre-wrap; word-break: break-word; color: var(--muted); fo
   }
 
   // src/shadowqa/overlay/overlay.js
-  var TRANSIENT_VIEWS = /* @__PURE__ */ new Set(["capturing", "bridge_error", "qa", "qa_summary", "fix"]);
+  var TRANSIENT_VIEWS = /* @__PURE__ */ new Set(["capturing", "bridge_error", "qa", "qa_summary", "fix", "toast"]);
   var Overlay = class {
     constructor({ actions }) {
       this.actions = actions;
@@ -954,6 +1059,17 @@ pre.raw { white-space: pre-wrap; word-break: break-word; color: var(--muted); fo
       style.textContent = STYLES;
       this.root = document.createElement("div");
       this.root.className = "root";
+      this.dock = document.createElement("div");
+      this.dock.className = "dock";
+      this.dot = document.createElement("button");
+      this.dot.className = "dot";
+      this.dot.dataset.action = "dot";
+      this.dot.dataset.testid = "sqa-status-dot";
+      this.dot.innerHTML = "<i></i>";
+      this.dock.appendChild(this.dot);
+      this.root.appendChild(this.dock);
+      this.cardEl = null;
+      this.drawerEl = null;
       this.shadow.append(style, this.root);
       document.documentElement.appendChild(this.host);
       this.root.addEventListener("click", (e) => this.onClick(e));
@@ -1006,6 +1122,7 @@ pre.raw { white-space: pre-wrap; word-break: break-word; color: var(--muted); fo
         retry: () => a.retry(),
         "run-qa": () => a.runQA(),
         investigate: () => a.investigate(btn.dataset.id),
+        "reset-demo": () => a.resetDemo(),
         dot: () => this.toggleInspector("health")
       };
       map[action]?.();
@@ -1015,6 +1132,7 @@ pre.raw { white-space: pre-wrap; word-break: break-word; color: var(--muted); fo
       const inc = s.incident;
       if (s.view === "capturing") return renderCapturing(s);
       if (s.view === "bridge_error") return renderBridgeError(s.error);
+      if (s.view === "toast") return renderToast(s.toast);
       if (s.view === "qa") return renderQA(s.qa || {});
       if (s.view === "qa_summary") return renderQASummary(s.qaRun || {});
       if (!inc) return null;
@@ -1033,8 +1151,9 @@ pre.raw { white-space: pre-wrap; word-break: break-word; color: var(--muted); fo
         case "replaying":
           return renderReplaying(inc, s.replaySteps);
         case "verified":
-        case "committed":
           return renderVerified(inc);
+        case "committed":
+          return renderCommitted(inc);
         case "validation_failed":
         case "replay_failed":
           return renderFailed(inc);
@@ -1048,15 +1167,63 @@ pre.raw { white-space: pre-wrap; word-break: break-word; color: var(--muted); fo
           return null;
       }
     }
+    /** Persistent elements + change detection: the card animates in once and never re-mounts on the 850 ms poll, scroll is preserved. */
     render() {
       if (!this.root) return;
       const card = this.cardHtml();
-      const busy = this.state.incident && !["verified", "committed", "dismissed", "rolled_back", "validation_failed", "replay_failed", "no_safe_fix", "diagnosis_failed", "superseded"].includes(this.state.incident.status);
-      const dock = `<div class="dock">${card ? `<div class="card">${card}</div>` : ""}<button class="dot ${busy || this.state.view === "qa" ? "busy" : ""}" data-action="dot" data-testid="sqa-status-dot" title="ShadowQA \xB7 ${busy ? "working" : "watching"} (Ctrl+Shift+Q)"><i></i></button></div>`;
-      const drawer = this.state.inspector ? renderInspector(this.state) : "";
-      this.root.innerHTML = dock + drawer;
+      const s = this.state;
+      const busy = s.incident && !["verified", "committed", "dismissed", "rolled_back", "validation_failed", "replay_failed", "no_safe_fix", "diagnosis_failed", "superseded"].includes(s.incident.status);
+      this.dot.className = `dot ${busy || s.view === "qa" ? "busy" : ""}`;
+      this.dot.title = `ShadowQA \xB7 ${busy ? "working" : "watching"} (Ctrl+Shift+Q)`;
+      if (card) {
+        if (!this.cardEl) {
+          this.cardEl = document.createElement("div");
+          this.cardEl.className = "card";
+          this.dock.insertBefore(this.cardEl, this.dot);
+        }
+        patchHtml(this.cardEl, card, ".card-body");
+      } else if (this.cardEl) {
+        this.cardEl.remove();
+        this.cardEl = null;
+      }
+      if (s.inspector) {
+        const html = renderInspector(s);
+        if (!this.drawerEl) {
+          this.drawerEl = document.createElement("div");
+          this.drawerEl.className = "drawer";
+          this.drawerEl.dataset.testid = "sqa-inspector";
+          this.root.appendChild(this.drawerEl);
+        }
+        patchHtml(this.drawerEl, html, ".pane");
+      } else if (this.drawerEl) {
+        this.drawerEl.remove();
+        this.drawerEl = null;
+      }
     }
   };
+  var VOLATILE = /(<[^>]*data-volatile="([^"]+)"[^>]*>)([^<]*)(<\/[^>]+>)/g;
+  function patchHtml(el, html, scrollSelector) {
+    if (el.__html === html) return;
+    const skeleton = html.replace(VOLATILE, "$1$4");
+    if (el.__skeleton === skeleton) {
+      for (const m of html.matchAll(VOLATILE)) {
+        const target = el.querySelector(`[data-volatile="${m[2]}"]`);
+        if (target && target.innerHTML !== m[3]) target.innerHTML = m[3];
+      }
+      el.__html = html;
+      return;
+    }
+    const inner = el.querySelector(scrollSelector);
+    const top = { el: el.scrollTop, inner: inner ? inner.scrollTop : 0 };
+    const focusKey = el.querySelector(":focus")?.dataset?.testid;
+    el.innerHTML = html;
+    el.__html = html;
+    el.__skeleton = skeleton;
+    el.scrollTop = top.el;
+    const nextInner = el.querySelector(scrollSelector);
+    if (nextInner) nextInner.scrollTop = top.inner;
+    if (focusKey) el.querySelector(`[data-testid="${focusKey}"]`)?.focus?.({ preventScroll: true });
+  }
 
   // src/shadowqa/qa.js
   var QARunner = class {
@@ -1277,14 +1444,14 @@ pre.raw { white-space: pre-wrap; word-break: break-word; color: var(--muted); fo
   var session = {
     load() {
       try {
-        return JSON.parse(localStorage.getItem(KEY)) || null;
+        return JSON.parse(sessionStorage.getItem(KEY)) || null;
       } catch {
         return null;
       }
     },
     save(state) {
       try {
-        localStorage.setItem(KEY, JSON.stringify(state));
+        sessionStorage.setItem(KEY, JSON.stringify(state));
       } catch {
       }
     },
@@ -1292,7 +1459,10 @@ pre.raw { white-space: pre-wrap; word-break: break-word; color: var(--muted); fo
       this.save({ ...this.load() || {}, ...fields });
     },
     clear() {
-      localStorage.removeItem(KEY);
+      try {
+        sessionStorage.removeItem(KEY);
+      } catch {
+      }
     }
   };
 
@@ -1371,11 +1541,13 @@ pre.raw { white-space: pre-wrap; word-break: break-word; color: var(--muted); fo
         await this.reloadForReplay();
       } else if (TERMINAL.has(inc.status)) {
         this.stopPolling();
-        this.detector.active = false;
+        this.detector.reset();
       }
     }
     async reloadForReplay() {
       session.patch({ phase: "reload_for_replay", reloadAt: Date.now() });
+      this.memory.stop();
+      await this.memory.flush();
       await sleep(2200);
       location.reload();
     }
@@ -1385,11 +1557,16 @@ pre.raw { white-space: pre-wrap; word-break: break-word; color: var(--muted); fo
       try {
         const inc = await this.bridge.getIncident(s.incidentId);
         this.replayValues = s.replayValues || {};
-        if (s.phase === "reload_for_replay" && inc.status === "awaiting_replay") {
-          await this.runReplay(inc);
-          return;
-        }
-        if (s.phase === "reload_for_replay" && inc.status === "replaying") {
+        const midReplay = (s.phase === "reload_for_replay" || s.phase === "replaying") && (inc.status === "awaiting_replay" || inc.status === "replaying");
+        if (midReplay) {
+          const attempts = (s.replayAttempts || 0) + 1;
+          session.patch({ replayAttempts: attempts });
+          if (attempts > 2) {
+            const updated = await this.bridge.postReplayResult(inc.id, { status: "failed", steps: [], evidence: [{ label: "Replay engine", ok: false, detail: "replay interrupted by repeated page reloads" }], duration_ms: 0 }).catch(() => null);
+            session.patch({ phase: "done" });
+            if (updated) this.setIncident(updated);
+            return;
+          }
           await this.runReplay(inc);
           return;
         }
@@ -1424,7 +1601,7 @@ pre.raw { white-space: pre-wrap; word-break: break-word; color: var(--muted); fo
         if (updated) this.setIncident(updated);
       } finally {
         this.detector.suppressed = false;
-        this.detector.active = false;
+        this.detector.reset();
       }
     }
     async waitForApp() {
@@ -1452,20 +1629,29 @@ pre.raw { white-space: pre-wrap; word-break: break-word; color: var(--muted); fo
         dismiss: async () => {
           const inc = this.incident;
           this.stopPolling();
-          this.detector.active = false;
+          this.detector.reset();
           this.incident = null;
           session.clear();
           this.overlay.set({ view: null, incident: null, replaySteps: null, qa: null, qaRun: null });
           if (inc && !TERMINAL.has(inc.status)) await this.bridge.dismiss(inc.id).catch(() => {
           });
-          else if (inc && ["verified", "committed"].includes(inc.status)) await this.bridge.dismiss(inc.id).catch(() => {
-          });
+        },
+        resetDemo: async () => {
+          try {
+            await this.bridge.resetDemo();
+            session.clear();
+            this.overlay.set({ view: "toast", toast: "Demo reset \u2014 bugs restored, ShadowQA memory cleared. Reloading\u2026" });
+            await sleep(900);
+            location.reload();
+          } catch (err) {
+            this.overlay.set({ view: "bridge_error", error: err.message });
+          }
         },
         rollback: async () => {
           if (!this.incident) return;
           this.stopPolling();
           const inc = await this.bridge.rollback(this.incident.id).catch(() => null);
-          this.detector.active = false;
+          this.detector.reset();
           if (inc) this.setIncident(inc);
         },
         createPr: async () => {
@@ -1509,7 +1695,7 @@ pre.raw { white-space: pre-wrap; word-break: break-word; color: var(--muted); fo
       try {
         const recent = await this.bridge.listIncidents();
         o.set({ recent });
-        if (tab === "health") o.set({ flows: (await this.bridge.getFlows()).flows, qaRun: await this.bridge.latestQaRun() });
+        if (tab === "health") o.set({ flows: (await this.bridge.getFlows()).flows, qaRun: await this.bridge.latestQaRun(), scenarios: (await this.bridge.getScenarios()).scenarios });
         if (tab === "memory") o.set({ memory: await this.bridge.getMemory() });
         if (tab === "agent") o.set({ telemetry: await this.bridge.getTelemetry(), audit: await this.bridge.getAudit() });
         if (tab === "source") await this.loadSource(inc);

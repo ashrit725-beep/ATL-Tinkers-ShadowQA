@@ -26,20 +26,21 @@ async def _save(doc: dict) -> None:
 
 async def observe(payload: dict) -> None:
     doc = await get()
-    for r in payload.get("routes", [])[:50]:
+    items = lambda key: [x for x in (payload.get(key) or []) if isinstance(x, dict)]  # noqa: E731 — SDK payload is a system boundary
+    for r in items("routes")[:50]:
         entry = doc["routes"].setdefault(_k(r.get("path", "/")), {"path": r.get("path"), "count": 0})
         entry["count"] += int(r.get("count", 1))
         entry["last_seen"] = now_iso()
         if r.get("title"):
             entry["title"] = str(r["title"])[:80]
-    for a in payload.get("apis", [])[:80]:
+    for a in items("apis")[:80]:
         key = _k(f"{a.get('method')} {a.get('path')}")
         entry = doc["apis"].setdefault(key, {"method": a.get("method"), "path": a.get("path"), "count": 0, "statuses": {}})
         entry["count"] += int(a.get("count", 1))
         st = str(a.get("status") or 0)
         entry["statuses"][st] = entry["statuses"].get(st, 0) + int(a.get("count", 1))
         entry["last_seen"] = now_iso()
-    for c in payload.get("components", [])[:80]:
+    for c in items("components")[:80]:
         name = str(c.get("name"))[:60]
         entry = doc["components"].setdefault(_k(name), {"name": name, "count": 0, "routes": []})
         entry["count"] += int(c.get("count", 1))

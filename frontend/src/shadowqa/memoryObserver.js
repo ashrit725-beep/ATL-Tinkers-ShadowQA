@@ -32,8 +32,13 @@ export class MemoryObserver {
   }
 
   start() {
+    // Heartbeat only — never flush on unload/hide, so no aborted requests appear in the network log. The runtime flushes explicitly before its own reloads.
     this.timer = setInterval(() => this.flush(), 20000);
-    window.addEventListener("pagehide", () => this.flush());
+  }
+
+  stop() {
+    clearInterval(this.timer);
+    this.timer = null;
   }
 
   async flush() {

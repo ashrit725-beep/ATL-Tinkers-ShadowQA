@@ -157,11 +157,13 @@ class TestReadOnlyEndpoints:
         # ensure JSON parseable
         r.json()
 
-    def test_flows_has_seven(self):
+    def test_flows_declared_eleven(self):
         r = requests.get(f"{SQA}/qa/flows", headers=H, timeout=15)
         j = r.json()
         flows = j if isinstance(j, list) else j.get("flows", j.get("items", []))
-        assert len(flows) == 7
+        declared = [f for f in flows if f.get("source") == "declared"]
+        assert len(declared) == 11
+        assert {"Order tracking", "Wishlist", "Account", "Help"} <= {f["name"] for f in declared}
 
 
 class TestWorkspaceFile:

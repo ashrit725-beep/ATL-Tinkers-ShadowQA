@@ -56,6 +56,7 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 .btn.link { border: 0; background: none; color: var(--muted); padding: 7px 4px; margin-left: auto; }
 .btn.link:hover { color: var(--text); }
 .btn:disabled { opacity: 0.45; cursor: default; }
+a.btn { color: inherit; text-decoration: none; display: inline-flex; align-items: center; }
 .spin { display: inline-block; width: 12px; height: 12px; border: 1.5px solid var(--line-strong); border-top-color: var(--cyan); border-radius: 999px; animation: spin 0.8s linear infinite; vertical-align: -2px; margin-right: 6px; }
 @keyframes spin { to { transform: rotate(360deg) } }
 
@@ -85,6 +86,24 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 .factors { margin: 6px 0 0; padding-left: 16px; color: var(--muted); font-size: 11.5px; }
 .factors li { margin: 1px 0; }
 .policy { font-size: 11px; color: var(--amber); margin-top: 6px; }
+.dim { color: var(--dim); }
+
+.signals { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin-top: 10px; }
+.sig-count { font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--cyan); margin-right: 4px; }
+.sig { font-size: 10.5px; padding: 1px 7px; border-radius: 999px; border: 1px solid rgba(55,182,211,0.25); background: rgba(55,182,211,0.07); color: var(--muted); white-space: nowrap; max-width: 160px; overflow: hidden; text-overflow: ellipsis; }
+
+.ba { display: grid; gap: 6px; margin-top: 12px; padding: 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--sub); }
+.ba-row { display: grid; grid-template-columns: 46px minmax(0, 1fr); gap: 8px; align-items: start; }
+.ba-k { font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--dim); padding-top: 3px; }
+.ba-row.ok .ba-k { color: var(--green); }
+.ba-row.bad .ba-k { color: #ff8d7f; }
+.ba-v { display: flex; flex-wrap: wrap; gap: 4px 6px; align-items: center; font-size: 11.5px; }
+.ba-v .node { padding: 2px 7px; border: 1px solid var(--line); border-radius: 4px; background: var(--card); color: var(--text); white-space: nowrap; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+.ba-v .node.bad { border-color: rgba(240,83,63,0.5); color: #ff8d7f; }
+.ba-v .arrow { color: var(--dim); }
+
+.pr { margin-top: 8px; padding: 10px 12px; border: 1px solid rgba(47,191,138,0.3); border-radius: 6px; background: rgba(47,191,138,0.06); }
+.pr-title { font-size: 12.5px; color: var(--text); }
 
 .drawer { position: fixed; top: 0; right: 0; bottom: 0; width: 720px; max-width: 100vw; background: #090a0d; border-left: 1px solid var(--line-strong); z-index: 2147483001;
   box-shadow: -30px 0 80px rgba(0,0,0,0.6); display: flex; flex-direction: column; animation: slide 0.3s cubic-bezier(0.16,1,0.3,1); }

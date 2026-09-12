@@ -3,11 +3,15 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-git checkout -- frontend/src/demo/api/payments.js frontend/src/demo/lib/promo.js 2>/dev/null || true
+git checkout -- frontend/src/demo/api/payments.js frontend/src/demo/lib/promo.js frontend/src/demo/api/store.js 2>/dev/null || true
+# Pristine (buggy) copies are the source of truth — the same files the bridge's /demo/reset uses.
+cp scripts/demo_bugs/payments.js frontend/src/demo/api/payments.js
+cp scripts/demo_bugs/promo.js frontend/src/demo/lib/promo.js
+cp scripts/demo_bugs/store.js frontend/src/demo/api/store.js
 for b in $(git branch --list 'shadowqa/*' | tr -d ' *'); do git branch -D "$b" >/dev/null; done
 
-DB_NAME=$(grep -E '^DB_NAME=' backend/.env | cut -d= -f2 | tr -d '"')
-MONGO_URL=$(grep -E '^MONGO_URL=' backend/.env | cut -d= -f2 | tr -d '"')
+DB_NAME=$(sed -nE 's/^DB_NAME=//p' backend/.env | tr -d '"')
+MONGO_URL=$(sed -nE 's/^MONGO_URL=//p' backend/.env | tr -d '"')
 python3 - "$MONGO_URL" "$DB_NAME" <<'EOF'
 import sys
 from pymongo import MongoClient

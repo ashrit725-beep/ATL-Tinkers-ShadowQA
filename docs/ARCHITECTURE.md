@@ -77,7 +77,7 @@ Never the whole repository. In order: the primary frame's file, other applicatio
 
 ## 7. AI orchestrator
 
-A bounded agent loop (≤ 3 rounds): the system prompt fixes the order *understand → diagnose → retrieve → plan → generate → assess → verification* and the JSON schema. Untrusted application content is wrapped in `<untrusted>` blocks. If a returned hunk does not apply verbatim, the failure reason is fed back for one repair round. Provider fallback: `anthropic:claude-sonnet-4-6` → `openai:gpt-5.4`. Every call is logged (`sqa_llm_log`).
+A bounded agent loop (≤ 3 rounds): the system prompt fixes the order *understand → diagnose → retrieve → plan → generate → assess → verification* and the JSON schema. Untrusted application content is wrapped in `<untrusted>` blocks. If a returned hunk does not apply verbatim, the failure reason is fed back for one repair round. Models reason before answering and fence their JSON: `extract_json` accepts prose + fenced blocks and picks the balanced object that parses; an unparseable reply gets one in-conversation repair turn with the same provider before falling back. Provider fallback: `anthropic:claude-sonnet-4-6` → `openai:gpt-5.4` (GPT-5 family receives no temperature override). Every call is logged (`sqa_llm_log`).
 
 ## 8. Patch, risk, validation, rollback
 
@@ -88,7 +88,11 @@ A bounded agent loop (≤ 3 rounds): the system prompt fixes the order *understa
 
 ## 9. Failure replay
 
-After validation the SDK persists its session, waits for the dev server to pick up the change and reloads. On boot it detects the pending replay, waits for the app to mount, and executes the plan in the live DOM (React-compatible native value setters, real clicks, network-idle settling). Evidence: each step, the expected request and its status, the AI-provided success selector/text, absence of runtime errors. A failed replay rolls the patch back automatically.
+After validation the SDK persists its session, flushes memory, waits for the dev server to pick up the change and reloads. On boot it detects the pending replay, waits for the app to mount, and executes the plan in the live DOM (React-compatible native value setters, real clicks, network-idle settling). Evidence: each step, the expected request and its status, the AI-provided success selector/text, absence of runtime errors. A failed replay rolls the patch back automatically. A replay interrupted by another reload is resumed once; a second interruption is reported as a failed replay (rollback) so an incident can never spin forever.
+
+## 9b. Command Center (`/shadowqa`)
+
+A React page served by the host app (`frontend/src/shadowqa/center/`) that reads the same bridge: incident history (rows open the inspector), the OBSERVE → VERIFY loop with per-stage latency, the "why the browser" comparison filled with the latest incident's live data, application health + QA sweep trigger, in-app context signal counts, agent telemetry & audit, application memory, demo scenario state + reset, and the autonomy policy switch. The overlay itself renders into persistent Shadow-DOM elements and patches HTML only when the structure changes (volatile counters update in place), so the 850 ms incident poll never re-mounts or re-animates the card.
 
 ## 10. Autonomous QA and memory
 

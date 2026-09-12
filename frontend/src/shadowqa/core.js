@@ -92,12 +92,14 @@ export class ShadowQA {
       await this.reloadForReplay();
     } else if (TERMINAL.has(inc.status)) {
       this.stopPolling();
-      this.detector.active = false;
+      this.detector.reset();
     }
   }
 
   async reloadForReplay() {
     session.patch({ phase: "reload_for_replay", reloadAt: Date.now() });
+    this.memory.stop();
+    await this.memory.flush();
     // Give the dev server time to notice the file change; webpack-dev-middleware then blocks the reload until the new bundle is compiled.
     await sleep(2200);
     location.reload();
@@ -109,11 +111,17 @@ export class ShadowQA {
     try {
       const inc = await this.bridge.getIncident(s.incidentId);
       this.replayValues = s.replayValues || {};
-      if (s.phase === "reload_for_replay" && inc.status === "awaiting_replay") {
-        await this.runReplay(inc);
-        return;
-      }
-      if (s.phase === "reload_for_replay" && inc.status === "replaying") {
+      const midReplay = (s.phase === "reload_for_replay" || s.phase === "replaying") && (inc.status === "awaiting_replay" || inc.status === "replaying");
+      if (midReplay) {
+        const attempts = (s.replayAttempts || 0) + 1;
+        session.patch({ replayAttempts: attempts });
+        if (attempts > 2) {
+          // The page reloaded twice during replay (e.g. another file change) — never leave the incident spinning; the bridge rolls back.
+          const updated = await this.bridge.postReplayResult(inc.id, { status: "failed", steps: [], evidence: [{ label: "Replay engine", ok: false, detail: "replay interrupted by repeated page reloads" }], duration_ms: 0 }).catch(() => null);
+          session.patch({ phase: "done" });
+          if (updated) this.setIncident(updated);
+          return;
+        }
         await this.runReplay(inc);
         return;
       }
@@ -149,7 +157,7 @@ export class ShadowQA {
       if (updated) this.setIncident(updated);
     } finally {
       this.detector.suppressed = false;
-      this.detector.active = false;
+      this.detector.reset();
     }
   }
 
@@ -179,18 +187,29 @@ export class ShadowQA {
       dismiss: async () => {
         const inc = this.incident;
         this.stopPolling();
-        this.detector.active = false;
+        this.detector.reset();
         this.incident = null;
         session.clear();
         this.overlay.set({ view: null, incident: null, replaySteps: null, qa: null, qaRun: null });
+        // Verified/committed fixes keep their verdict in history; only open incidents are marked dismissed.
         if (inc && !TERMINAL.has(inc.status)) await this.bridge.dismiss(inc.id).catch(() => {});
-        else if (inc && ["verified", "committed"].includes(inc.status)) await this.bridge.dismiss(inc.id).catch(() => {});
+      },
+      resetDemo: async () => {
+        try {
+          await this.bridge.resetDemo();
+          session.clear();
+          this.overlay.set({ view: "toast", toast: "Demo reset — bugs restored, ShadowQA memory cleared. Reloading…" });
+          await sleep(900);
+          location.reload();
+        } catch (err) {
+          this.overlay.set({ view: "bridge_error", error: err.message });
+        }
       },
       rollback: async () => {
         if (!this.incident) return;
         this.stopPolling();
         const inc = await this.bridge.rollback(this.incident.id).catch(() => null);
-        this.detector.active = false;
+        this.detector.reset();
         if (inc) this.setIncident(inc);
       },
       createPr: async () => {
@@ -234,7 +253,7 @@ export class ShadowQA {
     try {
       const recent = await this.bridge.listIncidents();
       o.set({ recent });
-      if (tab === "health") o.set({ flows: (await this.bridge.getFlows()).flows, qaRun: await this.bridge.latestQaRun() });
+      if (tab === "health") o.set({ flows: (await this.bridge.getFlows()).flows, qaRun: await this.bridge.latestQaRun(), scenarios: (await this.bridge.getScenarios()).scenarios });
       if (tab === "memory") o.set({ memory: await this.bridge.getMemory() });
       if (tab === "agent") o.set({ telemetry: await this.bridge.getTelemetry(), audit: await this.bridge.getAudit() });
       if (tab === "source") await this.loadSource(inc);

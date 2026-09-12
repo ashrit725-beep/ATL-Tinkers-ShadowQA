@@ -4,15 +4,19 @@
 * Backend `.env`: `ANTHROPIC_API_KEY` / `OPENAI_API_KEY`, `SHADOWQA_BRIDGE_TOKEN`, `SHADOWQA_AUTONOMY=auto_low`, `SHADOWQA_DEV_SERVER_URL=http://localhost:3000`, optional `GITHUB_REPO=owner/repo` + `GITHUB_TOKEN`.
 * Frontend `.env`: `REACT_APP_SHADOWQA_TOKEN` (same token), `DISABLE_EMERGENT_OVERLAY=true` (ShadowQA owns runtime-error UX).
 * Demo account: `demo@lumen.supply` / `lumen-demo`.
-* Reset between runs: `scripts/reset_demo.sh` (restores both bugs, clears ShadowQA memory, deletes `shadowqa/*` branches).
+* Reset between runs: `scripts/reset_demo.sh` or **Reset demo bugs** in the Command Center (`/shadowqa`) — restores all three bugs from `scripts/demo_bugs/`, clears ShadowQA memory, deletes `shadowqa/*` branches.
 
-## The two intentional bugs
+## The three intentional bugs
 | Where | Symptom | Root cause | Expected fix |
 |---|---|---|---|
 | Checkout → **Pay** | `POST /api/demo/payment` → 422, then `TypeError: Cannot read properties of undefined (reading 'toUpperCase')` in `pages/Checkout.jsx` | `api/payments.js` sends `total`, the gateway contract requires `amount` | 1-line key rename in `payments.js` (cause ≠ symptom file) |
 | Cart → promo code `lumen20` → **Apply** | `TypeError: Cannot read properties of undefined (reading 'rate')` in `lib/promo.js` | lookup is case-sensitive although codes are documented as case-insensitive | normalise the key with `.toUpperCase()` |
+| Orders → open **LUM-8842** → **Track shipment** | `GET /api/demo/orders/LUM-8842/tracking` → **200**, then `TypeError: Cannot read properties of undefined (reading 'events')` in `pages/OrderDetail.jsx` | `api/store.js` still unwraps `data.tracking` from a response the API stopped wrapping (v2 contract) | drop the `.then((data) => data.tracking)` in `store.js` (a *successful* request that still breaks the UI — the response-body sample ShadowQA captured shows the drift) |
 
 Nothing about these bugs is known to ShadowQA — the diagnosis is produced from live context + workspace source.
+
+## Command Center (`/shadowqa`)
+Incident history (click a row → inspector), the OBSERVE → VERIFY loop with per-stage latency, a live "why not Claude Code / Cursor / Copilot" comparison filled with the latest incident's data, application health + **Run QA sweep**, in-app context signals, agent telemetry & audit trail, application memory, demo scenario state + **Reset demo bugs**, and the autonomy policy switch (Approve all / Auto-apply LOW).
 
 ## Flagship script (≈ 40 s end-to-end)
 1. Sign in → **Products** → *Add* the Kodiak knife → **Cart** → *Proceed to checkout*.

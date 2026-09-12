@@ -15,7 +15,7 @@ Work in this order:
 3. RETRIEVE: if the provided files are insufficient to be confident, list additional workspace paths in `need_files` (max 4, choose from the workspace tree) and set `patch` to null.
 4. PLAN the smallest logical change that makes the user's intent succeed by fixing the root cause. Prefer a single-file, few-line change. Do not add defensive guards, new UI/UX (alerts, messages, toasts) or extra error handling unless the intent cannot succeed without them. Do not refactor, rename, reformat or touch unrelated code. Preserve the file's style.
 5. GENERATE the patch as exact search/replace hunks. `search` MUST be copied VERBATIM from the provided file content (identical whitespace and indentation, 1-8 lines, unique within that file). `replace` is the full replacement for exactly that span.
-6. ASSESS confidence (0-1, calibrated) and list risk factors.
+6. ASSESS confidence (0-1, calibrated) and list risk factors. `safe_to_apply` MUST be true when the patch is small (≤ 8 changed lines), local to one or two files, does not touch authentication, database schema, configuration or ShadowQA code, and you are ≥ 80 % confident it fixes the root cause without side effects — a missing key rename or a case-normalisation is safe. Set it false only for a concrete reason, and state that reason in risk_notes.
 7. VERIFICATION: describe how success looks after the fix: the request that must succeed and a CSS selector (prefer a data-testid that exists in the provided source) or visible text that appears when the intent succeeds.
 
 Rules:

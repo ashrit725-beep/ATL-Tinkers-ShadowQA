@@ -180,7 +180,55 @@ def build(payload: dict, frames: list[dict]) -> dict:
         "replay_plan": plan,
         "source_location": source_location,
         "component": component,
+        "context_signals": context_signals(payload, events, network, trigger, related_summary, source_location, component),
     }
+
+
+def context_signals(payload: dict, events: list[dict], network: list[dict], trigger: dict | None, related: dict | None,
+                    source_location: dict | None, component: str | None) -> list[dict]:
+    """What ShadowQA knew *because it lives inside the running app* — the context a chatbox never receives."""
+    signals: list[dict] = []
+    if trigger:
+        signals.append({"kind": "interaction", "label": f"Your gesture: {trigger.get('kind', 'click')} on '{_label(trigger.get('target'))}'"})
+    typed = [e for e in events if e.get("kind") == "input"]
+    if typed:
+        signals.append({"kind": "inputs", "label": f"{len(typed)} field{'s' if len(typed) != 1 else ''} you filled (values masked, kept locally for replay)"})
+    route = (payload.get("app") or {}).get("route")
+    if route:
+        signals.append({"kind": "route", "label": f"Route {route}"})
+    if component:
+        signals.append({"kind": "component", "label": f"React component <{component}> resolved from the DOM"})
+    if related:
+        body = " incl. response body" if related.get("response_snippet") else ""
+        status = f"HTTP {related.get('status')}" if related.get("status") else "no response"
+        signals.append({"kind": "network", "label": f"{related.get('method')} {related.get('path')} → {status}{body}"})
+    if len(network) > 1:
+        signals.append({"kind": "network_window", "label": f"{len(network)} requests in the preceding window"})
+    if source_location:
+        if source_location.get("resolved"):
+            signals.append({"kind": "source", "label": f"Stack source-mapped to {source_location['file']}:{source_location['line']}"})
+        else:
+            signals.append({"kind": "source", "label": "Bundle stack location (no source map available)"})
+    if payload.get("state"):
+        signals.append({"kind": "state", "label": "Live application state snapshot"})
+    console_errors = [e for e in events if e.get("kind") == "console"]
+    if console_errors:
+        signals.append({"kind": "console", "label": f"{len(console_errors)} console error{'s' if len(console_errors) != 1 else ''} in the window"})
+    return signals
+
+
+NOISE_CLICK_TAGS = {"input", "label", "form", "textarea", "select", "option", "fieldset", "legend", "div", "span", "p", "section"}
+ACTIONABLE_INPUT_TYPES = {"checkbox", "radio", "submit", "button", "reset", "image"}
+
+
+def is_noise_click(target: dict) -> bool:
+    """Focus clicks on fields, labels and containers are not user intent — `fill` steps already carry the values."""
+    tag = str(target.get("tag") or "").lower()
+    if target.get("role") in ("button", "link", "tab", "menuitem", "switch", "checkbox"):
+        return False
+    if tag == "input":
+        return str(target.get("type") or "text").lower() not in ACTIONABLE_INPUT_TYPES
+    return tag in NOISE_CLICK_TAGS
 
 
 def build_replay_plan(events: list[dict], route: str, related: dict | None, fp: str, trigger: dict | None) -> dict:
@@ -194,10 +242,11 @@ def build_replay_plan(events: list[dict], route: str, related: dict | None, fp: 
     for i, ev in enumerate(events[start:], start=start):
         kind = ev.get("kind")
         tgt = ev.get("target") or {}
+        is_trigger = bool(trigger) and ev.get("id") == trigger.get("id")
         if kind == "input" and tgt.get("selector"):
             steps.append({"id": f"s{len(steps)}", "action": "fill", "selector": tgt["selector"], "event_id": ev.get("id"),
                           "label": f"Enter {_label(tgt).lower()}", "fallback": {"testid": tgt.get("testid"), "name": tgt.get("name")}})
-        elif kind == "click" and tgt.get("selector"):
+        elif kind == "click" and tgt.get("selector") and (is_trigger or not is_noise_click(tgt)):
             last_click_ts = ev.get("ts")
             steps.append({"id": f"s{len(steps)}", "action": "click", "selector": tgt["selector"],
                           "label": f"Click '{_label(tgt)}'", "fallback": {"testid": tgt.get("testid"), "text": tgt.get("text")}})
@@ -205,7 +254,7 @@ def build_replay_plan(events: list[dict], route: str, related: dict | None, fp: 
             if last_click_ts and ev.get("ts", 0) - last_click_ts < 300:
                 continue
             steps.append({"id": f"s{len(steps)}", "action": "submit", "selector": tgt["selector"], "label": f"Submit {_label(tgt).lower()}"})
-        if trigger and ev.get("id") == trigger.get("id"):
+        if trigger and is_trigger:
             break
     expectations: dict = {"no_runtime_errors": True, "original_fingerprint": fp}
     if related:

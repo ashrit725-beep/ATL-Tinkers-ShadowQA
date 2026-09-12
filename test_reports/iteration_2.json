@@ -1,0 +1,33 @@
+{
+  "summary": "Full backend + frontend regression pass for ShadowQA iteration 2 (flagship tracking bug + overlay stability fix). Backend: 38/38 pytest green. Jest: 3 suites / 7 tests green. Frontend flagship E2E LOOP #1 (NEW tracking bug on /orders/LUM-8842 → Track shipment): full OBSERVE→DIAGNOSE→PATCH→VALIDATE→REPLAY→VERIFIED in 28.2s, order-tracking-events rendered, incident status=verified, patch.files[0].path=frontend/src/demo/api/store.js, diagnosis.cause_location=frontend/src/demo/api/store.js:9, diagnosis.model=claude-sonnet-4-6 (REAL LLM), telemetry.total_ms=28226. Overlay stability: same .card element persisted across 3s poll (marker retained, animation stable). E2E LOOP #2 (checkout regression + undo): FIX VERIFIED in 32s, order-confirmation shown, sqa-undo-btn → sqa-rolled-back → payments.js bug restored. Command Center /shadowqa: all cc-* testids present, no horizontal overflow at 1920, 90px overflow at 390 (minor), 3 scenario rows initially 'bug present', autonomy toggle approve_all↔auto_low round-trips via UI (verified via /api/shadowqa/settings). Run QA sweep unauthenticated → cc-notice shown (no crash). QA sweep authenticated: sqa-qa-summary '10/13 flows healthy'; Cart+Checkout fail with 2 Investigate buttons; QA-source incidents have status=diagnosed, policy.auto_applied != true (queued for review, correct). Investigate → sqa-view-fix-btn → sqa-diff → sqa-apply-fix-btn → FIX VERIFIED in 10s. Store UX: wishlist toggle (count=1), move to cart (cart-count=1), account edit+save (account-saved), FAQ toggle, support ticket confirmation. Inspector: sqa-status-dot opens, tabs health/agent/memory work, sqa-run-qa-btn + sqa-scenarios present, close btn + Ctrl+Shift+Q toggle. Final reset: all 3 bug_present=true, autonomy=auto_low.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Command Center /shadowqa at 390px viewport", "issues": ["90px horizontal overflow at mobile width (390). Minor — the desktop-oriented cards do not fully wrap on very small screens."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_backend_integration.py",
+    "/app/test_reports/pytest/iter2_backend.xml"
+  ],
+  "action_items": [
+    "OPTIONAL: address minor 90px horizontal overflow of Command Center at 390px viewport (media queries or grid stack)."
+  ],
+  "critical_code_review_comments": [
+    "Overlay flicker fix works: persistent .card element retained across the 850ms poll cycle (same DOM node, marker preserved for 3s); resolves the 'spaces out' complaint.",
+    "extract_json/repair round handles Claude prose+fenced-JSON responses cleanly — 5+ full loop diagnoses in this run without a single parse failure.",
+    "Real Anthropic Claude Sonnet 4.6 confirmed live: incident.diagnosis.model='claude-sonnet-4-6', per-diagnosis ~15-19s consistent with primary-model path (no fallback triggered in this iteration).",
+    "QA-source incidents correctly withhold auto-apply (policy.auto_applied != true) even under approve_all policy state; only user-observed incidents auto-patch under auto_low RISK LOW.",
+    "Reset endpoint idempotently restores all three pristine bug files and preserves autonomy setting."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100% (38/38 pytest + 7/7 Jest)", "frontend": "100% for all specified flows (E2E LOOP #1 tracking, LOOP #2 checkout, Command Center, QA sweep + investigate/apply, Inspector, Store UX)"},
+  "test_credentials": "demo@lumen.supply / lumen-demo ; bridge X-ShadowQA-Token: sqa_bridge_7f3c9a1e4b2d ; card 4242 4242 4242 4242 12/28 123",
+  "seed_data_creation": "none",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Reset endpoint: POST {API}/api/shadowqa/demo/reset with header X-ShadowQA-Token restores all 3 demo bugs and clears sqa_* Mongo state. Always run at end of session. Bridge header REQUIRED for /api/shadowqa/* routes (403 without). Overlay lives in open shadow root: document.querySelector('shadowqa-root').shadowRoot. SDK triggers location.reload() ~2s after validation — never navigate during validating/replaying. Autonomy PUT endpoint: PUT /api/shadowqa/settings body {autonomy:'auto_low'|'approve_all'}. Anthropic diagnosis ~15-20s; allow 75s for full E2E loop.",
+  "rca of the issue": "N/A — no blocking issues. Every acceptance-criteria bullet in the review request verified end-to-end."
+}

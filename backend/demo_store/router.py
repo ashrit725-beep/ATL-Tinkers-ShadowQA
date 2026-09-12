@@ -1,13 +1,14 @@
+import hashlib
 import os
 import random
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Header, HTTPException
 from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel, EmailStr, Field
 
-from .catalog import PRODUCTS, SEED_ORDERS
+from .catalog import FAQ, PRODUCTS, SEED_ORDERS
 
 router = APIRouter(prefix="/api/demo", tags=["demo-store"])
 
@@ -16,6 +17,8 @@ _db = _client[os.environ["DB_NAME"]]
 sessions = _db.demo_sessions
 orders = _db.demo_orders
 settings_col = _db.demo_settings
+accounts = _db.demo_accounts
+tickets = _db.demo_tickets
 
 DEMO_PASSWORD = "lumen-demo"
 
@@ -139,6 +142,86 @@ async def get_order(order_id: str, authorization: str | None = Header(default=No
     if not doc:
         raise HTTPException(status_code=404, detail="order not found")
     return doc
+
+
+def _tracking_for(order: dict) -> dict:
+    """Deterministic carrier timeline derived from the order's status and age."""
+    placed = datetime.fromisoformat(order["created_at"])
+    seed = int(hashlib.sha1(order["id"].encode()).hexdigest(), 16)
+    events = [
+        {"at": placed.isoformat(), "label": "Order received", "location": "Bend, OR"},
+        {"at": (placed + timedelta(hours=5)).isoformat(), "label": "Packed at the Bend workshop", "location": "Bend, OR"},
+    ]
+    if order["status"] in ("shipped", "delivered"):
+        events += [
+            {"at": (placed + timedelta(days=1, hours=2)).isoformat(), "label": "Handed to carrier", "location": "Bend, OR"},
+            {"at": (placed + timedelta(days=2, hours=6)).isoformat(), "label": "In transit — regional hub", "location": "Portland, OR"},
+        ]
+    if order["status"] == "delivered":
+        events.append({"at": (placed + timedelta(days=4, hours=1)).isoformat(), "label": "Delivered", "location": (order.get("customer") or {}).get("city") or "Destination"})
+    return {
+        "order_id": order["id"],
+        "carrier": "Cascade Freight",
+        "tracking_number": f"CF{seed % 10**10:010d}",
+        "status": order["status"],
+        "eta": None if order["status"] == "delivered" else (placed + timedelta(days=5)).isoformat(),
+        "events": events,
+    }
+
+
+@router.get("/orders/{order_id}/tracking")
+async def order_tracking(order_id: str, authorization: str | None = Header(default=None)):
+    """Tracking v2: the timeline is the response body (v1 wrapped it under `tracking`)."""
+    s = await _user(authorization)
+    doc = await orders.find_one({"email": s["email"], "id": order_id}, {"_id": 0})
+    if not doc:
+        raise HTTPException(status_code=404, detail="order not found")
+    return _tracking_for(doc)
+
+
+class Account(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
+    phone: str = Field(default="", max_length=32)
+    address: str = Field(default="", max_length=160)
+    city: str = Field(default="", max_length=80)
+    postal_code: str = Field(default="", max_length=12)
+    company: str = Field(default="", max_length=80)
+
+
+@router.get("/account")
+async def get_account(authorization: str | None = Header(default=None)):
+    s = await _user(authorization)
+    doc = await accounts.find_one({"email": s["email"]}, {"_id": 0, "email": 0})
+    account = doc or Account(name=s["name"]).model_dump()
+    return {"account": {**account, "email": s["email"], "member_since": s.get("member_since")}}
+
+
+@router.put("/account")
+async def put_account(body: Account, authorization: str | None = Header(default=None)):
+    s = await _user(authorization)
+    await accounts.replace_one({"email": s["email"]}, {"email": s["email"], **body.model_dump()}, upsert=True)
+    return {"account": {**body.model_dump(), "email": s["email"], "member_since": s.get("member_since")}, "saved_at": _now()}
+
+
+class SupportRequest(BaseModel):
+    subject: str = Field(min_length=3, max_length=120)
+    message: str = Field(min_length=10, max_length=2000)
+    order_id: str | None = None
+
+
+@router.get("/help/faq")
+async def help_faq():
+    return {"faq": FAQ}
+
+
+@router.post("/support")
+async def create_support_ticket(body: SupportRequest, authorization: str | None = Header(default=None)):
+    s = await _user(authorization)
+    ticket = {"id": f"LUM-T{random.randint(1000, 9999)}", "email": s["email"], "subject": body.subject, "message": body.message,
+              "order_id": body.order_id, "created_at": _now(), "status": "open"}
+    await tickets.insert_one(dict(ticket))
+    ticket.pop("_id", None)
+    return {"ticket": ticket, "expected_reply": "within one business day"}
 
 
 @router.post("/payment")

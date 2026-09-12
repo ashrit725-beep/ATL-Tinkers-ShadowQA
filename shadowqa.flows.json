@@ -53,6 +53,36 @@
       "expectations": { "request": { "method": "GET", "path": "/api/demo/orders" }, "ui": { "selector": "[data-testid=\"orders-page\"]" } }
     },
     {
+      "name": "Order tracking",
+      "steps": [
+        { "action": "navigate", "route": "/orders", "label": "Open orders" },
+        { "action": "click", "selector": "[data-testid=\"order-link-LUM-8842\"]", "label": "Open shipped order" },
+        { "action": "click", "selector": "[data-testid=\"order-track-btn\"]", "label": "Track shipment" }
+      ],
+      "expectations": { "request": { "method": "GET", "path": "/api/demo/orders/LUM-8842/tracking" }, "ui": { "selector": "[data-testid=\"order-tracking-events\"]" } }
+    },
+    {
+      "name": "Wishlist",
+      "steps": [{ "action": "navigate", "route": "/wishlist", "label": "Open wishlist" }],
+      "expectations": { "ui": { "selector": "[data-testid=\"wishlist-page\"]" } }
+    },
+    {
+      "name": "Account",
+      "steps": [
+        { "action": "navigate", "route": "/account", "label": "Open account" },
+        { "action": "click", "selector": "[data-testid=\"account-save-btn\"]", "label": "Save profile" }
+      ],
+      "expectations": { "request": { "method": "PUT", "path": "/api/demo/account" }, "ui": { "selector": "[data-testid=\"account-saved\"]" } }
+    },
+    {
+      "name": "Help",
+      "steps": [
+        { "action": "navigate", "route": "/help", "label": "Open help" },
+        { "action": "click", "selector": "[data-testid=\"faq-toggle-1\"]", "label": "Expand second question" }
+      ],
+      "expectations": { "request": { "method": "GET", "path": "/api/demo/help/faq" }, "ui": { "selector": "[data-testid=\"faq-answer-1\"]" } }
+    },
+    {
       "name": "Settings",
       "steps": [
         { "action": "navigate", "route": "/settings", "label": "Open settings" },

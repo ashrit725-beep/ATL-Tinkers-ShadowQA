@@ -49,13 +49,24 @@ export function observeNetwork(buffer, ctx, { ignorePrefixes = [] } = {}) {
     item.ok = status >= 200 && status < 400;
     ctx.inflight = Math.max(0, ctx.inflight - 1);
     const done = () => ctx.onNetwork?.(item);
-    if (!item.ok && snippetPromise) {
+    if (snippetPromise) {
       snippetPromise.then((text) => {
-        item.response_snippet = String(text || "").slice(0, 1500);
+        // Failures keep the full error body; successful JSON keeps a short, redacted shape sample (contract drift is often visible right there).
+        item.response_snippet = item.ok ? sanitizeSnippet(text) : String(text || "").slice(0, 1500);
         done();
       }, done);
     } else done();
   };
+
+  const sanitizeSnippet = (text) => {
+    try {
+      return JSON.stringify(sanitizeObject(JSON.parse(text))).slice(0, 600);
+    } catch {
+      return String(text || "").slice(0, 200);
+    }
+  };
+
+  const isJson = (res) => /json/i.test(res.headers.get("content-type") || "");
 
   const originalFetch = window.fetch;
   window.fetch = function shadowqaFetch(input, init) {
@@ -68,7 +79,7 @@ export function observeNetwork(buffer, ctx, { ignorePrefixes = [] } = {}) {
     return originalFetch.apply(this, arguments).then(
       (res) => {
         item.content_type = res.headers.get("content-type") || undefined;
-        finish(item, res.status, res.ok ? null : res.clone().text());
+        finish(item, res.status, !res.ok || isJson(res) ? res.clone().text() : null);
         return res;
       },
       (err) => {

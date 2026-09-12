@@ -1,17 +1,17 @@
 const KEY = "shadowqa:session";
 
-/** Survives hot reloads and tab re-opens: active incident, phase, and local replay values (never sent to the bridge). */
+/** Per-tab session (sessionStorage): survives the hot reload before replay, never leaks to other tabs, never leaves the browser. */
 export const session = {
   load() {
     try {
-      return JSON.parse(localStorage.getItem(KEY)) || null;
+      return JSON.parse(sessionStorage.getItem(KEY)) || null;
     } catch {
       return null;
     }
   },
   save(state) {
     try {
-      localStorage.setItem(KEY, JSON.stringify(state));
+      sessionStorage.setItem(KEY, JSON.stringify(state));
     } catch {
       /* storage may be unavailable */
     }
@@ -20,6 +20,10 @@ export const session = {
     this.save({ ...(this.load() || {}), ...fields });
   },
   clear() {
-    localStorage.removeItem(KEY);
+    try {
+      sessionStorage.removeItem(KEY);
+    } catch {
+      /* ignore */
+    }
   },
 };

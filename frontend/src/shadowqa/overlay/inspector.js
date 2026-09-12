@@ -47,8 +47,10 @@ function source(inc, file) {
 function diagnosis(inc) {
   if (!inc) return empty("No incident selected.");
   const d = inc.diagnosis;
-  if (!d) return `<p class="empty">${inc.status === "diagnosing" || inc.status === "captured" ? "Diagnosis in progress…" : inc.error || "No diagnosis available."}</p>`;
-  return `<h3>User intent</h3><p><b>${esc(d.intent)}</b></p>
+  const signals = inc.context_signals || [];
+  const signalsBlock = signals.length ? `<h3>In-situ context · ${signals.length} signals a chatbox never receives</h3><ul class="factors" data-testid="sqa-diag-signals">${signals.map((s) => `<li><span class="mono" style="color:var(--dim)">${esc(s.kind)}</span> · ${esc(s.label)}</li>`).join("")}</ul>` : "";
+  if (!d) return `${signalsBlock}<p class="empty">${inc.status === "diagnosing" || inc.status === "captured" ? "Diagnosis in progress…" : inc.error || "No diagnosis available."}</p>`;
+  return `${signalsBlock}<h3>User intent</h3><p><b>${esc(d.intent)}</b></p>
     <h3>Root cause</h3><p data-testid="sqa-diag-root-cause"><b>${esc(d.root_cause)}</b></p><p>${esc(d.explanation)}</p>
     <div class="row"><span>Symptom: <b class="mono">${esc(shortPath(d.symptom_location))}</b></span><span>Cause: <b class="mono">${esc(shortPath(d.cause_location))}</b></span></div>
     <h3>Hypotheses</h3><table class="grid"><tbody>${(d.hypotheses || []).map((h) => `<tr><td>${esc(h.cause)}</td><td class="mono" style="width:60px">${pct(h.probability)}</td></tr>`).join("")}</tbody></table>
@@ -85,9 +87,12 @@ function replay(inc) {
 function health(data) {
   const run = data.qaRun;
   const flows = data.flows || [];
-  return `<div class="row"><button class="btn primary" data-action="run-qa" data-testid="sqa-run-qa-btn">Run QA sweep</button><span style="color:var(--muted)">${flows.length} flows (${flows.filter((f) => f.source === "declared").length} declared · ${flows.filter((f) => f.source === "learned").length} learned regression)</span></div>
+  const scenarios = data.scenarios || [];
+  return `<div class="row"><button class="btn primary" data-action="run-qa" data-testid="sqa-run-qa-btn">Run QA sweep</button><span style="color:var(--muted)">${flows.length} flows (${flows.filter((f) => f.source === "declared").length} declared · ${flows.filter((f) => f.source === "learned").length} learned regression)</span><a class="btn" href="/shadowqa" data-testid="sqa-open-center-link" style="margin-left:auto;text-decoration:none">Command Center ↗</a></div>
     ${run?.flows ? `<h3>Application health · ${esc(run.at)}</h3><div class="health" data-testid="sqa-health-grid">${run.flows.map((f) => `<div class="hcard ${esc(f.status)}"><div class="hn">${statusIcon(f.status)}${esc(f.name)}</div><div class="hd">${f.error ? esc(f.error) : `${(f.steps || []).length} steps · ${ms(f.duration_ms)}`}</div>${f.incident_id ? `<button class="btn" data-action="investigate" data-id="${esc(f.incident_id)}">Investigate</button>` : ""}</div>`).join("")}</div>` : `<p class="empty" style="margin-top:12px">No QA sweep recorded yet.</p>`}
-    <h3>Flows</h3><table class="grid"><tbody>${flows.map((f) => `<tr><td>${esc(f.name)}</td><td style="color:var(--dim)">${esc(f.source)}</td><td style="color:var(--dim)">${(f.steps || []).length} steps</td></tr>`).join("")}</tbody></table>`;
+    <h3>Flows</h3><table class="grid"><tbody>${flows.map((f) => `<tr><td>${esc(f.name)}</td><td style="color:var(--dim)">${esc(f.source)}</td><td style="color:var(--dim)">${(f.steps || []).length} steps</td></tr>`).join("")}</tbody></table>
+    ${scenarios.length ? `<h3>Demo scenarios</h3><table class="grid" data-testid="sqa-scenarios"><tbody>${scenarios.map((s) => `<tr><td>${esc(s.title)}</td><td class="mono" style="color:var(--dim)">${esc(shortPath(s.file))}</td><td class="${s.bug_present ? "s-warn" : "s-ok"}" data-testid="sqa-scenario-${esc(s.id)}">${s.bug_present ? "bug present" : "fixed"}</td></tr>`).join("")}</tbody></table>
+    <div class="row" style="margin-top:10px"><button class="btn" data-action="reset-demo" data-testid="sqa-reset-demo-btn">Reset demo bugs</button><span style="color:var(--dim);font-size:11px">Restores the three intentional bugs from pristine copies and clears ShadowQA memory.</span></div>` : ""}`;
 }
 
 function memory(data) {
@@ -117,8 +122,7 @@ export function renderInspector(state) {
   const inc = state.incident;
   const tab = state.tab;
   const panes = { timeline: () => timeline(inc), graph: () => graph(inc), network: () => network(inc), source: () => source(inc, state.sourceFile), diagnosis: () => diagnosis(inc), patch: () => patch(inc), validation: () => validation(inc), replay: () => replay(inc), health: () => health(state), memory: () => memory(state), agent: () => agent(state, inc) };
-  return `<div class="drawer" data-testid="sqa-inspector">
-    <div class="drawer-head"><span class="led"></span><span class="brand">ShadowQA Inspector</span><p class="sub mono">${inc ? `${esc(inc.id)} · ${esc(inc.status)}` : "no active incident"}</p>${state.recent?.length ? `<select class="btn mono" data-action="select-incident" data-testid="sqa-incident-select">${state.recent.map((r) => `<option value="${esc(r.id)}" ${inc && r.id === inc.id ? "selected" : ""}>${esc(r.created_at.slice(11, 19))} · ${esc(r.title)} · ${esc(r.status)}</option>`).join("")}</select>` : ""}<button class="close" data-action="close-inspector" data-testid="sqa-inspector-close">✕</button></div>
+  return `<div class="drawer-head"><span class="led"></span><span class="brand">ShadowQA Inspector</span><p class="sub mono">${inc ? `${esc(inc.id)} · ${esc(inc.status)}` : "no active incident"}</p>${state.recent?.length ? `<select class="btn mono" data-action="select-incident" data-testid="sqa-incident-select">${state.recent.map((r) => `<option value="${esc(r.id)}" ${inc && r.id === inc.id ? "selected" : ""}>${esc(r.created_at.slice(11, 19))} · ${esc(r.title)} · ${esc(r.status)}</option>`).join("")}</select>` : ""}<button class="close" data-action="close-inspector" data-testid="sqa-inspector-close">✕</button></div>
     <div class="tabs">${TABS.map(([id, label]) => `<button class="tab ${tab === id ? "active" : ""}" data-action="tab" data-tab="${id}" data-testid="sqa-tab-${id}">${label}</button>`).join("")}</div>
-    <div class="pane">${(panes[tab] || panes.timeline)()}</div></div>`;
+    <div class="pane">${(panes[tab] || panes.timeline)()}</div>`;
 }

@@ -78,7 +78,7 @@ async def ingest(payload: dict) -> dict:
 
 async def run_diagnosis(incident_id: str) -> None:
     inc = await get_incident(incident_id)
-    if not inc:
+    if not inc or inc.get("status") in TERMINAL:
         return
     ws = get_workspace()
     await update_incident(incident_id, {"status": "diagnosing"})
@@ -109,6 +109,14 @@ async def run_diagnosis(incident_id: str) -> None:
         "model": (result.get("_rounds") or [{}])[-1].get("model"), "provider": (result.get("_rounds") or [{}])[-1].get("provider"),
     }
     fields: dict = {"diagnosis": diagnosis, "telemetry": telemetry}
+    signals = list(inc.get("context_signals") or [])
+    retrieved = diagnosis["retrieved_files"]
+    if retrieved:
+        names = ", ".join(f["path"].split("/")[-1] for f in retrieved[:4])
+        signals.append({"kind": "workspace", "label": f"{len(retrieved)} workspace file{'s' if len(retrieved) != 1 else ''} read from disk ({names})"})
+    if brief:
+        signals.append({"kind": "memory", "label": "Application memory consulted" + (" — known regression" if inc.get("regression") else "")})
+    fields["context_signals"] = signals
     if isinstance(result.get("title"), str) and result["title"].strip():
         fields["title"] = ("Regression: " if inc.get("regression") else "") + result["title"].strip()[:48]
 
@@ -129,6 +137,13 @@ async def run_diagnosis(incident_id: str) -> None:
         fields["replay_plan"] = rp
     else:
         fields.update(status="no_safe_fix", risk=None, patch=None)
+    # The developer may have dismissed the incident while the model was thinking: keep the diagnosis for history, never act on it.
+    current = await get_incident(incident_id)
+    if not current or current.get("status") in TERMINAL:
+        fields.pop("status", None)
+        await update_incident(incident_id, fields)
+        await audit("diagnosis.completed_after_dismiss", incident_id, confidence=diagnosis["confidence"])
+        return
     await update_incident(incident_id, fields)
     await audit("diagnosis.completed", incident_id, status=fields["status"], confidence=diagnosis["confidence"],
                 risk=(fields.get("risk") or {}).get("level"), model=diagnosis["model"])
@@ -142,7 +157,7 @@ async def run_diagnosis(incident_id: str) -> None:
 
 async def run_apply(incident_id: str, actor: str = "developer") -> None:
     inc = await get_incident(incident_id)
-    if not inc or not inc.get("patch"):
+    if not inc or not inc.get("patch") or inc.get("status") != "diagnosed":
         return
     ws = get_workspace()
     telemetry = dict(inc.get("telemetry") or {})
@@ -185,6 +200,10 @@ async def record_replay(incident_id: str, result: dict) -> dict | None:
     inc = await get_incident(incident_id)
     if not inc:
         return None
+    if inc.get("status") not in ("replaying", "awaiting_replay"):
+        # A late or duplicate replay report (e.g. from a second tab) must never overturn an established verdict.
+        await audit("replay.ignored", incident_id, actor="sdk", status=inc.get("status"), reported=result.get("status"))
+        return inc
     ws = get_workspace()
     telemetry = dict(inc.get("telemetry") or {})
     telemetry["replay_ms"] = result.get("duration_ms")

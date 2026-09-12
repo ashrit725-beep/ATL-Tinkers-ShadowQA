@@ -26,6 +26,12 @@ export class Detector {
     this.timer = setTimeout(() => this.onIncident(failure), 400);
   }
 
+  /** After a verdict or an explicit developer action the same failure must be detectable again immediately (e.g. retry after Undo). */
+  reset() {
+    this.recent.clear();
+    this.active = false;
+  }
+
   handleNetwork(item) {
     if (this.suppressed || this.active) return;
     if ((item.status || 0) < 500 && item.status !== 0) return;

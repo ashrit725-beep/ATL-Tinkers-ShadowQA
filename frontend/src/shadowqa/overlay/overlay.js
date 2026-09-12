@@ -2,7 +2,7 @@ import { STYLES } from "./styles";
 import { renderInspector } from "./inspector";
 import * as views from "./views";
 
-const TRANSIENT_VIEWS = new Set(["capturing", "bridge_error", "qa", "qa_summary", "fix"]);
+const TRANSIENT_VIEWS = new Set(["capturing", "bridge_error", "qa", "qa_summary", "fix", "toast"]);
 
 /** Zero-UI overlay host: a Shadow DOM island that stays invisible until there is something worth saying. */
 export class Overlay {
@@ -19,6 +19,17 @@ export class Overlay {
     style.textContent = STYLES;
     this.root = document.createElement("div");
     this.root.className = "root";
+    this.dock = document.createElement("div");
+    this.dock.className = "dock";
+    this.dot = document.createElement("button");
+    this.dot.className = "dot";
+    this.dot.dataset.action = "dot";
+    this.dot.dataset.testid = "sqa-status-dot";
+    this.dot.innerHTML = "<i></i>";
+    this.dock.appendChild(this.dot);
+    this.root.appendChild(this.dock);
+    this.cardEl = null;
+    this.drawerEl = null;
     this.shadow.append(style, this.root);
     document.documentElement.appendChild(this.host);
     this.root.addEventListener("click", (e) => this.onClick(e));
@@ -76,6 +87,7 @@ export class Overlay {
       retry: () => a.retry(),
       "run-qa": () => a.runQA(),
       investigate: () => a.investigate(btn.dataset.id),
+      "reset-demo": () => a.resetDemo(),
       dot: () => this.toggleInspector("health"),
     };
     map[action]?.();
@@ -86,6 +98,7 @@ export class Overlay {
     const inc = s.incident;
     if (s.view === "capturing") return views.renderCapturing(s);
     if (s.view === "bridge_error") return views.renderBridgeError(s.error);
+    if (s.view === "toast") return views.renderToast(s.toast);
     if (s.view === "qa") return views.renderQA(s.qa || {});
     if (s.view === "qa_summary") return views.renderQASummary(s.qaRun || {});
     if (!inc) return null;
@@ -104,8 +117,9 @@ export class Overlay {
       case "replaying":
         return views.renderReplaying(inc, s.replaySteps);
       case "verified":
-      case "committed":
         return views.renderVerified(inc);
+      case "committed":
+        return views.renderCommitted(inc);
       case "validation_failed":
       case "replay_failed":
         return views.renderFailed(inc);
@@ -120,12 +134,65 @@ export class Overlay {
     }
   }
 
+  /** Persistent elements + change detection: the card animates in once and never re-mounts on the 850 ms poll, scroll is preserved. */
   render() {
     if (!this.root) return;
     const card = this.cardHtml();
-    const busy = this.state.incident && !["verified", "committed", "dismissed", "rolled_back", "validation_failed", "replay_failed", "no_safe_fix", "diagnosis_failed", "superseded"].includes(this.state.incident.status);
-    const dock = `<div class="dock">${card ? `<div class="card">${card}</div>` : ""}<button class="dot ${busy || this.state.view === "qa" ? "busy" : ""}" data-action="dot" data-testid="sqa-status-dot" title="ShadowQA · ${busy ? "working" : "watching"} (Ctrl+Shift+Q)"><i></i></button></div>`;
-    const drawer = this.state.inspector ? renderInspector(this.state) : "";
-    this.root.innerHTML = dock + drawer;
+    const s = this.state;
+    const busy = s.incident && !["verified", "committed", "dismissed", "rolled_back", "validation_failed", "replay_failed", "no_safe_fix", "diagnosis_failed", "superseded"].includes(s.incident.status);
+    this.dot.className = `dot ${busy || s.view === "qa" ? "busy" : ""}`;
+    this.dot.title = `ShadowQA · ${busy ? "working" : "watching"} (Ctrl+Shift+Q)`;
+
+    if (card) {
+      if (!this.cardEl) {
+        this.cardEl = document.createElement("div");
+        this.cardEl.className = "card";
+        this.dock.insertBefore(this.cardEl, this.dot);
+      }
+      patchHtml(this.cardEl, card, ".card-body");
+    } else if (this.cardEl) {
+      this.cardEl.remove();
+      this.cardEl = null;
+    }
+
+    if (s.inspector) {
+      const html = renderInspector(s);
+      if (!this.drawerEl) {
+        this.drawerEl = document.createElement("div");
+        this.drawerEl.className = "drawer";
+        this.drawerEl.dataset.testid = "sqa-inspector";
+        this.root.appendChild(this.drawerEl);
+      }
+      patchHtml(this.drawerEl, html, ".pane");
+    } else if (this.drawerEl) {
+      this.drawerEl.remove();
+      this.drawerEl = null;
+    }
   }
+}
+
+const VOLATILE = /(<[^>]*data-volatile="([^"]+)"[^>]*>)([^<]*)(<\/[^>]+>)/g;
+
+/** Replace innerHTML only when the structure changed; counters marked data-volatile update in place, scroll & focus are preserved. */
+function patchHtml(el, html, scrollSelector) {
+  if (el.__html === html) return;
+  const skeleton = html.replace(VOLATILE, "$1$4");
+  if (el.__skeleton === skeleton) {
+    for (const m of html.matchAll(VOLATILE)) {
+      const target = el.querySelector(`[data-volatile="${m[2]}"]`);
+      if (target && target.innerHTML !== m[3]) target.innerHTML = m[3];
+    }
+    el.__html = html;
+    return;
+  }
+  const inner = el.querySelector(scrollSelector);
+  const top = { el: el.scrollTop, inner: inner ? inner.scrollTop : 0 };
+  const focusKey = el.querySelector(":focus")?.dataset?.testid;
+  el.innerHTML = html;
+  el.__html = html;
+  el.__skeleton = skeleton;
+  el.scrollTop = top.el;
+  const nextInner = el.querySelector(scrollSelector);
+  if (nextInner) nextInner.scrollTop = top.inner;
+  if (focusKey) el.querySelector(`[data-testid="${focusKey}"]`)?.focus?.({ preventScroll: true });
 }
