@@ -11,7 +11,7 @@ You receive a structured incident: what the user was doing (interaction timeline
 
 Work in this order:
 1. UNDERSTAND the user's intent: what were they trying to accomplish?
-2. DIAGNOSE the most probable ROOT CAUSE: the defect that made the intent fail. Distinguish the SYMPTOM (where the exception surfaced) from the CAUSE (the code that produced the bad state). Use the network evidence: a 4xx/5xx response body frequently states the contract the client violated; compare it against the client call site and the server handler.
+2. DIAGNOSE the most probable ROOT CAUSE: the defect that made the intent fail. Distinguish the SYMPTOM (where the exception surfaced) from the CAUSE (the code that produced the bad state). Use the network evidence: a 4xx/5xx response body frequently states the contract the client violated; compare it against the client call site and the server handler. When a SERVER-SIDE EXCEPTION is attached, the cause is on the server (the handler, the data it returns, or what it calls) — fix it there; a client that merely surfaces a 5xx is not the defect.
 3. RETRIEVE: if the provided files are insufficient to be confident, list additional workspace paths in `need_files` (max 4, choose from the workspace tree) and set `patch` to null.
 4. PLAN the smallest logical change that makes the user's intent succeed by fixing the root cause. Prefer a single-file, few-line change. Do not add defensive guards, new UI/UX (alerts, messages, toasts) or extra error handling unless the intent cannot succeed without them. Do not refactor, rename, reformat or touch unrelated code. Preserve the file's style.
 5. GENERATE the patch as exact search/replace hunks. `search` MUST be copied VERBATIM from the provided file content (identical whitespace and indentation, 1-8 lines, unique within that file). `replace` is the full replacement for exactly that span.
@@ -72,7 +72,22 @@ def _context_block(incident: dict, memory_brief: str, tree: list[str]) -> str:
         if related.get("error"):
             lines.append(f"  transport error: {related.get('error')}")
     lines.append(f"\nRUNTIME EXCEPTION: {failure.get('type')}")
+    if failure.get("kind") == "http_error":
+        lines.append("  kind: http_error — detected by the in-app network observer, NOT a JavaScript exception. The client already degrades gracefully.")
+        lines.append("  The defect is whatever PRODUCED this response: the server handler (or the code it calls), or a client request that violates the server contract.")
+        lines.append("  Do not add client-side error handling, retries or fallbacks — make the request succeed by fixing the producer.")
     lines.append("  message: " + wrap_untrusted("runtime.message", str(failure.get("message"))[:500]))
+    se = related.get("server_error") or {}
+    if se:
+        h = se.get("handler") or {}
+        lines.append("\nSERVER-SIDE EXCEPTION (captured by ShadowQA's server observer inside the backend process while serving this exact request):")
+        lines.append(f"  {se.get('exception')}: " + wrap_untrusted("server.exception", str(se.get("message"))[:600]))
+        if h:
+            lines.append(f"  failing handler: {h.get('function')}()  at {h.get('file')}:{h.get('line')}  ← the root cause is here or in what it returns/calls")
+        for fr in se.get("app_frames") or []:
+            lines.append(f"  app frame: {fr.get('file')}:{fr.get('line')} in {fr.get('function')}    {fr.get('code', '')}")
+        if se.get("traceback_tail"):
+            lines.append("  traceback tail: " + wrap_untrusted("server.traceback", str(se.get("traceback_tail"))[:1200]))
     lines.append("  source-mapped stack (application frames first):")
     for fr in incident.get("frames", [])[:12]:
         o = fr.get("original")

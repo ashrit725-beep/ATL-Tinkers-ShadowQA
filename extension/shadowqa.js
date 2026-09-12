@@ -74,7 +74,8 @@
 
   // src/shadowqa/dom.js
   var INTERACTIVE = 'button, a, [role="button"], input, select, textarea, label, summary, [data-testid]';
-  var SKIP_COMPONENTS = /* @__PURE__ */ new Set(["Fragment", "Suspense", "Provider", "Consumer", "Outlet", "Routes", "Route", "RenderedRoute", "Router", "BrowserRouter", "Layout", "Protected", "ErrorBoundary", "Field", "PageHeader", "StatusPill", "Link", "NavLink", "Navigate"]);
+  var SKIP_COMPONENTS = /* @__PURE__ */ new Set(["Fragment", "Suspense", "Provider", "Consumer", "Outlet", "Routes", "Route", "RenderedRoute", "Router", "BrowserRouter", "Protected", "ErrorBoundary", "Field", "PageHeader", "StatusPill", "Link", "NavLink", "Navigate", "App"]);
+  var GENERIC_COMPONENT = /(Provider|Context|Boundary)$/;
   var SENSITIVE_RE = /(card|cvc|cvv|exp|secret|token|password|passwd|ssn|iban|account)/i;
   var cssEscape = (s) => window.CSS && CSS.escape ? CSS.escape(s) : String(s).replace(/["\\]/g, "\\$&");
   function isShadowQANode(node) {
@@ -130,7 +131,7 @@
       while (fiber && hops++ < 60) {
         const t = fiber.type;
         const name = typeof t === "function" ? t.displayName || t.name : t && typeof t === "object" ? t.displayName || t.render?.name : null;
-        if (name && /^[A-Z]/.test(name) && !SKIP_COMPONENTS.has(name)) return name;
+        if (name && /^[A-Z]/.test(name) && !SKIP_COMPONENTS.has(name) && !GENERIC_COMPONENT.test(name)) return name;
         fiber = fiber.return;
       }
     } catch {
@@ -650,12 +651,13 @@ a.btn { color: inherit; text-decoration: none; display: inline-flex; align-items
 .tl .kind { font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--dim); }
 .tl li.error .kind, .tl li.error .l { color: #ff8d7f; }
 .tl li.source .kind { color: var(--cyan); }
+.tl li.server .kind, .tl li.server .l { color: #ff8d7f; }
 .tl li.user .kind { color: var(--indigo); }
 .graph { display: flex; flex-direction: column; align-items: flex-start; gap: 0; }
 .gnode { border: 1px solid var(--line-strong); background: var(--sub); border-radius: 6px; padding: 7px 12px; min-width: 240px; }
 .gnode .gt { font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--dim); }
 .gnode .gl { font-size: 12.5px; word-break: break-all; }
-.gnode.runtime_error { border-color: rgba(240,83,63,0.5); } .gnode.source_location, .gnode.file { border-color: rgba(55,182,211,0.5); } .gnode.user_action { border-color: rgba(124,131,245,0.5); }
+.gnode.runtime_error, .gnode.server_exception { border-color: rgba(240,83,63,0.5); } .gnode.source_location, .gnode.file { border-color: rgba(55,182,211,0.5); } .gnode.user_action { border-color: rgba(124,131,245,0.5); }
 .gedge { width: 1px; height: 16px; background: var(--line-strong); margin-left: 18px; position: relative; }
 .gedge::after { content: ""; position: absolute; bottom: -1px; left: -3px; border: 3.5px solid transparent; border-top-color: var(--line-strong); }
 .code { background: #07080a; border: 1px solid var(--line); border-radius: 6px; padding: 8px 0; font-size: 11.5px; line-height: 1.55; overflow: auto; max-height: 420px; }
@@ -799,7 +801,7 @@ pre.raw { white-space: pre-wrap; word-break: break-word; color: var(--muted); fo
     ${run?.flows ? `<h3>Application health \xB7 ${escapeHtml(run.at)}</h3><div class="health" data-testid="sqa-health-grid">${run.flows.map((f) => `<div class="hcard ${escapeHtml(f.status)}"><div class="hn">${statusIcon(f.status)}${escapeHtml(f.name)}</div><div class="hd">${f.error ? escapeHtml(f.error) : `${(f.steps || []).length} steps \xB7 ${ms(f.duration_ms)}`}</div>${f.incident_id ? `<button class="btn" data-action="investigate" data-id="${escapeHtml(f.incident_id)}">Investigate</button>` : ""}</div>`).join("")}</div>` : `<p class="empty" style="margin-top:12px">No QA sweep recorded yet.</p>`}
     <h3>Flows</h3><table class="grid"><tbody>${flows.map((f) => `<tr><td>${escapeHtml(f.name)}</td><td style="color:var(--dim)">${escapeHtml(f.source)}</td><td style="color:var(--dim)">${(f.steps || []).length} steps</td></tr>`).join("")}</tbody></table>
     ${scenarios.length ? `<h3>Demo scenarios</h3><table class="grid" data-testid="sqa-scenarios"><tbody>${scenarios.map((s) => `<tr><td>${escapeHtml(s.title)}</td><td class="mono" style="color:var(--dim)">${escapeHtml(shortPath(s.file))}</td><td class="${s.bug_present ? "s-warn" : "s-ok"}" data-testid="sqa-scenario-${escapeHtml(s.id)}">${s.bug_present ? "bug present" : "fixed"}</td></tr>`).join("")}</tbody></table>
-    <div class="row" style="margin-top:10px"><button class="btn" data-action="reset-demo" data-testid="sqa-reset-demo-btn">Reset demo bugs</button><span style="color:var(--dim);font-size:11px">Restores the three intentional bugs from pristine copies and clears ShadowQA memory.</span></div>` : ""}`;
+    <div class="row" style="margin-top:10px"><button class="btn" data-action="reset-demo" data-testid="sqa-reset-demo-btn">Reset demo bugs</button><span style="color:var(--dim);font-size:11px">Restores every intentional bug from its pristine copy and clears ShadowQA memory.</span></div>` : ""}`;
   }
   function memory(data) {
     const m = data.memory;
@@ -862,7 +864,8 @@ pre.raw { white-space: pre-wrap; word-break: break-word; color: var(--muted); fo
     component: (l) => l.match(/<[^>]+>/)?.[0] || "component",
     network: (l) => l.match(/HTTP \d+/)?.[0] || "network",
     network_window: (l) => l.match(/^\d+ requests/)?.[0] || "requests",
-    source: (l) => /source-mapped/.test(l) ? "source map" : "stack",
+    source: (l) => /source-mapped/.test(l) ? "source map" : /handler/.test(l) ? "server handler" : "stack",
+    server: () => "server traceback",
     state: () => "app state",
     console: (l) => l.match(/^\d+ console errors?/)?.[0] || "console",
     workspace: (l) => l.match(/^\d+ workspace files?/)?.[0] || "workspace",
@@ -1347,15 +1350,24 @@ pre.raw { white-space: pre-wrap; word-break: break-word; color: var(--muted); fo
       if (!el) throw new Error(`element not found: ${step.selector || step.fallback?.testid || step.fallback?.text}`);
       return el;
     }
+    async goto(route, loose = false) {
+      const before = location.pathname;
+      if (before !== route) {
+        history.pushState({}, "", route);
+        window.dispatchEvent(new PopStateEvent("popstate", { state: {} }));
+      }
+      await this.waitFor(() => location.pathname === route || loose && location.pathname !== before, 3e3);
+      await sleep(120);
+    }
     async execute(step, values) {
       switch (step.action) {
         case "navigate": {
-          if (location.pathname !== step.route) {
-            history.pushState({}, "", step.route);
-            window.dispatchEvent(new PopStateEvent("popstate", { state: {} }));
+          if (location.pathname === step.route) {
+            const away = step.from && step.from !== step.route ? step.from : step.route === "/" ? "/__shadowqa_remount" : "/";
+            await this.goto(away, true);
+            await this.settle();
           }
-          await this.waitFor(() => location.pathname === step.route, 3e3);
-          await sleep(120);
+          await this.goto(step.route);
           return;
         }
         case "fill": {
@@ -1555,9 +1567,11 @@ pre.raw { white-space: pre-wrap; word-break: break-word; color: var(--muted); fo
       const s = session.load();
       if (!s?.incidentId) return;
       try {
+        const midReplayPhase = s.phase === "reload_for_replay" || s.phase === "replaying";
+        if (midReplayPhase) await this.waitForBridge();
         const inc = await this.bridge.getIncident(s.incidentId);
         this.replayValues = s.replayValues || {};
-        const midReplay = (s.phase === "reload_for_replay" || s.phase === "replaying") && (inc.status === "awaiting_replay" || inc.status === "replaying");
+        const midReplay = midReplayPhase && (inc.status === "awaiting_replay" || inc.status === "replaying");
         if (midReplay) {
           const attempts = (s.replayAttempts || 0) + 1;
           session.patch({ replayAttempts: attempts });
@@ -1612,6 +1626,14 @@ pre.raw { white-space: pre-wrap; word-break: break-word; color: var(--muted); fo
         await sleep(100);
       }
       await sleep(400);
+    }
+    async waitForBridge(timeout = 2e4) {
+      const started = Date.now();
+      while (Date.now() - started < timeout) {
+        if (await this.bridge.health().then(() => true).catch(() => false)) return true;
+        await sleep(500);
+      }
+      return false;
     }
     // ---- developer actions --------------------------------------------------
     actions() {

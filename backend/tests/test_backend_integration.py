@@ -50,6 +50,17 @@ class TestDemoStore:
                           json={"email": "demo@lumen.supply", "password": "bad"}, timeout=15)
         assert r.status_code == 401
 
+    def test_support_tickets_matches_scenario_state(self, token):
+        """Backend demo bug: raw Mongo docs → 500 while present; fixed → 200 with the seeded ticket."""
+        state = {s["id"]: s["bug_present"] for s in requests.get(f"{SQA}/demo/scenarios", headers=H, timeout=15).json()["scenarios"]}
+        r = requests.get(f"{DEMO}/support/tickets", headers={"Authorization": f"Bearer {token}"}, timeout=15)
+        if state["tickets"]:
+            assert r.status_code == 500
+        else:
+            assert r.status_code == 200
+            ids = [t["id"] for t in r.json()["tickets"]]
+            assert "LUM-T4821" in ids and all("_id" not in t for t in r.json()["tickets"])
+
     def test_products(self):
         r = requests.get(f"{DEMO}/products", timeout=15)
         assert r.status_code == 200
@@ -162,8 +173,8 @@ class TestReadOnlyEndpoints:
         j = r.json()
         flows = j if isinstance(j, list) else j.get("flows", j.get("items", []))
         declared = [f for f in flows if f.get("source") == "declared"]
-        assert len(declared) == 11
-        assert {"Order tracking", "Wishlist", "Account", "Help"} <= {f["name"] for f in declared}
+        assert len(declared) == 12
+        assert {"Order tracking", "Wishlist", "Account", "Help", "Support tickets"} <= {f["name"] for f in declared}
 
 
 class TestWorkspaceFile:

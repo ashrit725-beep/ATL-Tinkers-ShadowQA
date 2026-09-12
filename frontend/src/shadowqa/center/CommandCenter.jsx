@@ -47,7 +47,7 @@ export default function CommandCenter() {
       await bridge.resetDemo();
       sessionStorage.removeItem("shadowqa:session");
       await refresh();
-      say("Demo reset — all three intentional bugs restored, ShadowQA memory cleared.");
+      say("Demo reset — all intentional bugs restored, ShadowQA memory cleared.");
     } catch (e) {
       say(`Reset failed: ${e.message}`);
     } finally {

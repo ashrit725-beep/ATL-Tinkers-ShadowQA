@@ -44,6 +44,7 @@ const SIGNAL_META = {
   route: ["Route", "which screen was live"],
   component: ["React component", "resolved from the fiber tree"],
   network: ["Failed request", "method, path, status and response body"],
+  server: ["Server exception", "traceback + failing handler, captured in the backend process"],
   network_window: ["Request window", "the requests that preceded the failure"],
   source: ["Source map", "bundle frame → original file:line"],
   state: ["App state", "cart / auth snapshot from the host"],

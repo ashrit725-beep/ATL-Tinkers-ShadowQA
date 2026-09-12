@@ -128,12 +128,13 @@ a.btn { color: inherit; text-decoration: none; display: inline-flex; align-items
 .tl .kind { font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--dim); }
 .tl li.error .kind, .tl li.error .l { color: #ff8d7f; }
 .tl li.source .kind { color: var(--cyan); }
+.tl li.server .kind, .tl li.server .l { color: #ff8d7f; }
 .tl li.user .kind { color: var(--indigo); }
 .graph { display: flex; flex-direction: column; align-items: flex-start; gap: 0; }
 .gnode { border: 1px solid var(--line-strong); background: var(--sub); border-radius: 6px; padding: 7px 12px; min-width: 240px; }
 .gnode .gt { font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--dim); }
 .gnode .gl { font-size: 12.5px; word-break: break-all; }
-.gnode.runtime_error { border-color: rgba(240,83,63,0.5); } .gnode.source_location, .gnode.file { border-color: rgba(55,182,211,0.5); } .gnode.user_action { border-color: rgba(124,131,245,0.5); }
+.gnode.runtime_error, .gnode.server_exception { border-color: rgba(240,83,63,0.5); } .gnode.source_location, .gnode.file { border-color: rgba(55,182,211,0.5); } .gnode.user_action { border-color: rgba(124,131,245,0.5); }
 .gedge { width: 1px; height: 16px; background: var(--line-strong); margin-left: 18px; position: relative; }
 .gedge::after { content: ""; position: absolute; bottom: -1px; left: -3px; border: 3.5px solid transparent; border-top-color: var(--line-strong); }
 .code { background: #07080a; border: 1px solid var(--line); border-radius: 6px; padding: 8px 0; font-size: 11.5px; line-height: 1.55; overflow: auto; max-height: 420px; }

@@ -1,6 +1,7 @@
 /** Semantic DOM descriptors: small, meaningful, replayable. Never whole-page dumps. */
 const INTERACTIVE = 'button, a, [role="button"], input, select, textarea, label, summary, [data-testid]';
-const SKIP_COMPONENTS = new Set(["Fragment", "Suspense", "Provider", "Consumer", "Outlet", "Routes", "Route", "RenderedRoute", "Router", "BrowserRouter", "Layout", "Protected", "ErrorBoundary", "Field", "PageHeader", "StatusPill", "Link", "NavLink", "Navigate"]);
+const SKIP_COMPONENTS = new Set(["Fragment", "Suspense", "Provider", "Consumer", "Outlet", "Routes", "Route", "RenderedRoute", "Router", "BrowserRouter", "Protected", "ErrorBoundary", "Field", "PageHeader", "StatusPill", "Link", "NavLink", "Navigate", "App"]);
+const GENERIC_COMPONENT = /(Provider|Context|Boundary)$/;
 const SENSITIVE_RE = /(card|cvc|cvv|exp|secret|token|password|passwd|ssn|iban|account)/i;
 
 const cssEscape = (s) => (window.CSS && CSS.escape ? CSS.escape(s) : String(s).replace(/["\\]/g, "\\$&"));
@@ -63,7 +64,7 @@ export function componentNameOf(el) {
     while (fiber && hops++ < 60) {
       const t = fiber.type;
       const name = typeof t === "function" ? t.displayName || t.name : t && typeof t === "object" ? t.displayName || t.render?.name : null;
-      if (name && /^[A-Z]/.test(name) && !SKIP_COMPONENTS.has(name)) return name;
+      if (name && /^[A-Z]/.test(name) && !SKIP_COMPONENTS.has(name) && !GENERIC_COMPONENT.test(name)) return name;
       fiber = fiber.return;
     }
   } catch {

@@ -15,6 +15,7 @@
 ┌──────────────────────────────────▼──────────── Local Workspace Bridge (FastAPI) ────┐
 │ api.py            token-gated REST surface                                          │
 │ pipeline.py       ingest → correlate → diagnose → apply → validate → replay-result   │
+│ server_sdk.py     ASGI server observer: unhandled exception → handler file:line     │
 │ sourcemap.py      bundle.js:line:col → src/file.jsx:line (VLQ decoder, cached)      │
 │ correlation.py    causal timeline · context graph · replay plan · fingerprint       │
 │ retrieval.py      targeted source retrieval (frames, route handler, component…)     │
@@ -58,12 +59,16 @@ Every transition is written to `sqa_audit`. Stage latencies are recorded in `inc
 
 Raw input values never leave the browser: the SDK sends masked values and keeps the raw ones in `localStorage` only for replay.
 
+### 3b. Server observation layer
+
+A 5xx seen in the browser usually carries no client stack (`http_error` incidents: the detector synthesises the failure from the network observer; the UI may even degrade gracefully). `server_sdk.ServerErrorObserver` is a pure ASGI middleware installed in the backend: every unhandled exception is recorded with its type, message, **the failing route handler resolved to `file:line` from `scope["endpoint"]`**, application frames and a traceback tail, then re-raised untouched. At ingest, `correlation.build()` joins the failed request (same method + path, ≤ 90 s) to that record: the handler becomes the incident's `source_location` (`side: "server"`), a `server_exception` node enters the context graph, a `Server → …` line enters the timeline, a `server` context signal is emitted, and the orchestrator receives a *SERVER-SIDE EXCEPTION* block — so the diagnosis lands on the producer of the 500, never on the client's error handling.
+
 ## 4. Correlation engine and context graph
 
 `correlation.build()` orders events and network entries, picks the **trigger** (last click/submit, a submit within 400 ms of a click collapses into the click), the **related request** (a failed request between trigger and exception, else the last completed one), the **primary frame** (top-most non-vendor, non-SDK source-mapped frame), and builds:
 
 * a **timeline** (`HH:MM:SS.mmm  Route changed → /checkout`, `User clicked → Pay $303.00`, `Network → POST /api/demo/payment`, `Network → HTTP 422`, `Runtime → TypeError…`, `Component → Checkout`, `Source → Checkout.jsx:31`),
-* a **context graph** `user_action → ui_element → component → route → network_request → network_response → runtime_error → source_location → file`,
+* a **context graph** `user_action → ui_element → component → route → network_request → [server_exception] → network_response → runtime_error → source_location → file`,
 * a **replay plan** (navigate → fill… → click, with the expected request and the original fingerprint),
 * a stable **fingerprint** (type + digit-normalised message + source location) used for regression detection.
 

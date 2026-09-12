@@ -1,8 +1,32 @@
 import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { ChevronDown } from "lucide-react";
-import { fetchFaq, fetchOrders, submitSupport } from "../api/store";
+import { ChevronDown, Ticket } from "lucide-react";
+import { fetchFaq, fetchOrders, fetchTickets, submitSupport } from "../api/store";
 import { Field, PageHeader } from "../components/Field";
+
+function TicketList({ tickets, error }) {
+  return (
+    <div className="bg-white border border-line p-6 reveal reveal-2" data-testid="help-tickets">
+      <h2 className="font-display text-lg text-ink mb-4 flex items-center gap-2"><Ticket size={16} className="text-ink2" /> Your tickets</h2>
+      {error && <p className="text-sm text-red-700" data-testid="help-tickets-error">We couldn't load your tickets right now. Please try again in a moment.</p>}
+      {!error && tickets === null && <p className="text-sm text-mute font-mono">Loading…</p>}
+      {!error && tickets?.length === 0 && <p className="text-sm text-ink2" data-testid="help-tickets-empty">No tickets yet — the form on the right opens one.</p>}
+      {!error && tickets?.length > 0 && (
+        <ul className="divide-y divide-line" data-testid="help-ticket-list">
+          {tickets.map((t) => (
+            <li key={t.id} className="py-3 flex flex-wrap items-baseline justify-between gap-3" data-testid={`help-ticket-${t.id}`}>
+              <div className="min-w-0">
+                <div className="text-sm text-ink font-medium truncate">{t.subject}</div>
+                <div className="text-xs text-mute font-mono mt-0.5">{t.id} · {new Date(t.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}{t.order_id ? ` · ${t.order_id}` : ""}</div>
+              </div>
+              <span className={`status-pill ${t.status === "answered" ? "border-forest/30 text-forest bg-forest/5" : "border-brass/40 text-brass bg-brass/5"}`}>{t.status}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
 
 function Faq({ items }) {
   const [open, setOpen] = useState(0);
@@ -28,11 +52,20 @@ export default function Help() {
   const [form, setForm] = useState({ subject: "", message: "", order_id: params.get("order") || "" });
   const [ticket, setTicket] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [tickets, setTickets] = useState(null);
+  const [ticketsError, setTicketsError] = useState(false);
 
   useEffect(() => {
     fetchFaq().then((d) => setFaq(d.faq || []));
     fetchOrders().then((d) => setOrders(d.orders || []));
   }, []);
+
+  useEffect(() => {
+    setTicketsError(false);
+    fetchTickets()
+      .then((d) => setTickets(d.tickets || []))
+      .catch(() => setTicketsError(true));
+  }, [ticket]);
 
   const update = (e) => setForm((prev) => ({ ...prev, [e.target.name]: e.target.value }));
   const send = async (e) => {
@@ -50,9 +83,12 @@ export default function Help() {
     <div data-testid="help-page">
       <PageHeader eyebrow="Help & support" title={<>How can we <span className="italic font-light">help?</span></>} />
       <div className="grid lg:grid-cols-5 gap-10">
-        <section className="lg:col-span-3">
-          <h2 className="font-display text-lg text-ink mb-4">Frequently asked</h2>
-          <Faq items={faq} />
+        <section className="lg:col-span-3 space-y-8">
+          <div>
+            <h2 className="font-display text-lg text-ink mb-4">Frequently asked</h2>
+            <Faq items={faq} />
+          </div>
+          <TicketList tickets={tickets} error={ticketsError} />
         </section>
         <aside className="lg:col-span-2 reveal reveal-1">
           <div className="bg-white border border-line p-6">
@@ -70,7 +106,7 @@ export default function Help() {
                   <span className="block text-xs font-medium text-ink2 mb-1.5">Related order (optional)</span>
                   <select name="order_id" className="field" value={form.order_id} onChange={update} data-testid="support-order">
                     <option value="">No specific order</option>
-                    {orders.map((o) => <option key={o.id} value={o.id}>{o.id} · {o.status}</option>)}
+                    {orders.map((o) => <option key={o.id} value={o.id}>{`${o.id} · ${o.status}`}</option>)}
                   </select>
                 </label>
                 <Field label="Subject" id="sup-subject" name="subject" testid="support-subject" value={form.subject} onChange={update} required minLength={3} placeholder="Sheath stitching on my hatchet" />

@@ -5,7 +5,7 @@ import time
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from . import correlation, git_ops, memory, orchestrator, risk
+from . import correlation, git_ops, memory, orchestrator, risk, server_sdk
 from .config import settings
 from .db import audit, get_incident, incidents, now_iso, now_ms, update_incident
 from .llm import LLMUnavailable
@@ -42,7 +42,7 @@ async def ingest(payload: dict) -> dict:
     failure = payload.get("failure") or {}
     frames = parse_stack(failure.get("stack"))
     frames = await resolver.resolve_frames(frames, settings.dev_server_url, ws.source_strip_prefixes, ws.source_map_to, str(ws.root))
-    corr = correlation.build(payload, frames)
+    corr = correlation.build(payload, frames, server_error_for=server_sdk.match)
     await _supersede_stale(ws)
     detected = (payload.get("timing") or {}).get("detected_at") or failure.get("ts") or now_ms()
     incident = {
@@ -173,18 +173,22 @@ async def run_apply(incident_id: str, actor: str = "developer") -> None:
     telemetry["patch_ms"] = int((time.time() - t0) * 1000)
     await update_incident(incident_id, {"status": "validating", "telemetry": telemetry, "applied_at": now_iso()})
     await audit("patch.applied", incident_id, actor=actor, files=[f["path"] for f in plan], lines=sum(f["added"] + f["removed"] for f in plan))
+    await _validate_and_advance(incident_id, ws, [f["path"] for f in plan], checkpoint, telemetry)
 
+
+async def _validate_and_advance(incident_id: str, ws, files: list[str], checkpoint: dict, telemetry: dict) -> None:
     async def progress(steps: list[dict]) -> None:
         await update_incident(incident_id, {"validation": {"status": "running", "steps": steps}})
 
     t1 = time.time()
     try:
-        validation = await run_validation(ws, [f["path"] for f in plan], progress)
+        validation = await run_validation(ws, files, progress)
     except Exception as exc:
         validation = {"status": "failed", "steps": [{"name": "validation engine", "status": "failed", "output": str(exc)[:500]}]}
     telemetry["validation_ms"] = int((time.time() - t1) * 1000)
     await update_incident(incident_id, {"validation": validation, "telemetry": telemetry})
-    await memory.record_validation({**inc, "validation": validation})
+    current = await get_incident(incident_id) or {"id": incident_id}
+    await memory.record_validation({**current, "validation": validation})
     if validation["status"] != "passed":
         restore_files(ws, checkpoint["files"])
         telemetry["rollback"] = True
@@ -194,6 +198,25 @@ async def run_apply(incident_id: str, actor: str = "developer") -> None:
         return
     await update_incident(incident_id, {"status": "awaiting_replay", "validated_at": now_iso()})
     await audit("validation.passed", incident_id, steps=[s["name"] for s in validation["steps"]])
+
+
+async def resume_interrupted() -> None:
+    """A backend-side patch reloads this very server mid-validation: on boot, finish the interrupted work instead of leaving incidents spinning."""
+    ws = get_workspace()
+    stuck = await incidents.find({"status": {"$in": ["applying", "validating"]}},
+                                 {"_id": 0, "id": 1, "status": 1, "checkpoint": 1, "telemetry": 1, "patch": 1}).to_list(20)
+    for inc in stuck:
+        files = [f["path"] for f in (inc.get("patch") or {}).get("files", [])]
+        if not inc.get("checkpoint") or not files:
+            await update_incident(inc["id"], {"status": "no_safe_fix", "error": "interrupted before a checkpoint existed"})
+            continue
+        if inc["status"] == "applying":
+            ok, plan, _ = plan_patch(ws, {"files": inc["patch"]["files"]})
+            if ok:  # search text still present → the patch was never written
+                apply_files(ws, plan)
+            await update_incident(inc["id"], {"status": "validating"})
+        await audit("pipeline.resumed_after_restart", inc["id"], actor="system", interrupted_in=inc["status"])
+        await _validate_and_advance(inc["id"], ws, files, inc["checkpoint"], dict(inc.get("telemetry") or {}))
 
 
 async def record_replay(incident_id: str, result: dict) -> dict | None:

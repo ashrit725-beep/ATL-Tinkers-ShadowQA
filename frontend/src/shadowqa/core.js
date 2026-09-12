@@ -109,9 +109,12 @@ export class ShadowQA {
     const s = session.load();
     if (!s?.incidentId) return;
     try {
+      const midReplayPhase = s.phase === "reload_for_replay" || s.phase === "replaying";
+      // A backend-side fix restarts the bridge itself; give it time to come back before deciding anything.
+      if (midReplayPhase) await this.waitForBridge();
       const inc = await this.bridge.getIncident(s.incidentId);
       this.replayValues = s.replayValues || {};
-      const midReplay = (s.phase === "reload_for_replay" || s.phase === "replaying") && (inc.status === "awaiting_replay" || inc.status === "replaying");
+      const midReplay = midReplayPhase && (inc.status === "awaiting_replay" || inc.status === "replaying");
       if (midReplay) {
         const attempts = (s.replayAttempts || 0) + 1;
         session.patch({ replayAttempts: attempts });
@@ -169,6 +172,15 @@ export class ShadowQA {
       await sleep(100);
     }
     await sleep(400);
+  }
+
+  async waitForBridge(timeout = 20000) {
+    const started = Date.now();
+    while (Date.now() - started < timeout) {
+      if (await this.bridge.health().then(() => true).catch(() => false)) return true;
+      await sleep(500);
+    }
+    return false;
   }
 
   // ---- developer actions --------------------------------------------------

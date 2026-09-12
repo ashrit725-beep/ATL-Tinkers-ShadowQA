@@ -43,12 +43,13 @@ def pick_primary_frame(frames: list[dict]) -> dict | None:
     return None
 
 
-def build(payload: dict, frames: list[dict]) -> dict:
+def build(payload: dict, frames: list[dict], server_error_for=None) -> dict:
     failure = payload.get("failure", {})
     events = sorted(payload.get("events", []), key=lambda e: e.get("ts", 0))
     network = sorted(payload.get("network", []), key=lambda n: n.get("ts", 0))
     fail_ts = failure.get("ts") or 0
     route = (payload.get("app") or {}).get("route") or "/"
+    is_http = failure.get("kind") == "http_error"
 
     # --- trigger: last click/submit before the failure (within 15s); a submit right after a click is the same gesture
     trigger = None
@@ -75,6 +76,24 @@ def build(payload: dict, frames: list[dict]) -> dict:
     primary = pick_primary_frame(frames)
     fp = fingerprint(failure, primary)
 
+    # --- server-side exception joined to the failed request (captured by the server observer in the backend process)
+    server_error = None
+    if related and (related.get("status") or 0) >= 500 and server_error_for:
+        server_error = server_error_for(related.get("method"), related.get("path") or urlparse(related.get("url") or "").path)
+    handler = (server_error or {}).get("handler") or {}
+
+    source_location = None
+    if primary:
+        source_location = {"file": primary["original"]["file"], "line": primary["original"]["line"],
+                           "column": primary["original"].get("column"), "function": primary.get("function"), "resolved": True}
+    elif handler.get("file"):
+        source_location = {"file": handler["file"], "line": handler.get("line"), "column": None, "function": handler.get("function"),
+                           "resolved": True, "side": "server"}
+    elif frames:
+        f0 = frames[0]
+        source_location = {"file": urlparse(f0.get("url", "")).path, "line": f0.get("line"), "column": f0.get("column"),
+                           "function": f0.get("function"), "resolved": False}
+
     # --- timeline
     timeline: list[dict] = []
     for ev in events:
@@ -99,14 +118,21 @@ def build(payload: dict, frames: list[dict]) -> dict:
             lab = f"Network → HTTP {status}" if status else f"Network → failed ({n.get('error') or 'no response'})"
             timeline.append({"ts": n["end_ts"], "kind": "network", "label": lab, "ref": n.get("id"),
                              "severity": "error" if (status or 0) >= 400 or not status else "ok"})
-    timeline.append({"ts": fail_ts, "kind": "runtime", "label": f"Runtime → {failure.get('type')}: {str(failure.get('message'))[:140]}",
-                     "severity": "error"})
+    if server_error:
+        where = f" · {handler['function']}() {handler['file']}:{handler['line']}" if handler else ""
+        timeline.append({"ts": (related.get("end_ts") or fail_ts) - 1, "kind": "server", "severity": "error",
+                         "label": f"Server → {server_error['exception']}: {str(server_error.get('message'))[:120]}{where}"})
+    if is_http:
+        timeline.append({"ts": fail_ts, "kind": "failure", "label": f"Failure → {str(failure.get('message'))[:140]} (server error, no client exception)",
+                         "severity": "error"})
+    else:
+        timeline.append({"ts": fail_ts, "kind": "runtime", "label": f"Runtime → {failure.get('type')}: {str(failure.get('message'))[:140]}",
+                         "severity": "error"})
     component = (payload.get("dom") or {}).get("trigger", {}).get("component") if payload.get("dom") else None
     if component:
-        timeline.append({"ts": fail_ts, "kind": "component", "label": f"Component → {component}"})
-    if primary:
-        o = primary["original"]
-        timeline.append({"ts": fail_ts, "kind": "source", "label": f"Source → {o['file']}:{o['line']}"})
+        timeline.append({"ts": fail_ts, "kind": "component", "label": f"Component → <{component}> rendered the trigger element"})
+    if source_location and source_location.get("resolved"):
+        timeline.append({"ts": fail_ts, "kind": "source", "label": f"Source → {source_location['file']}:{source_location['line']}"})
     timeline.sort(key=lambda t: t["ts"])
     for t in timeline:
         t["time"] = _fmt_ts(t["ts"])
@@ -131,13 +157,15 @@ def build(payload: dict, frames: list[dict]) -> dict:
         rpath = related.get("path") or urlparse(related.get("url") or "").path
         chain.append(add("request", "network_request", f"{related.get('method')} {rpath}",
                          {"status": related.get("status"), "duration_ms": related.get("duration_ms")}))
+        if server_error:
+            chain.append(add("server", "server_exception", f"{server_error['exception']} in {handler.get('function', 'handler')}()",
+                             {"file": handler.get("file"), "line": handler.get("line"), "message": str(server_error.get("message"))[:300]}))
         chain.append(add("response", "network_response", f"HTTP {related.get('status')}" if related.get("status") else "No response",
                          {"snippet": related.get("response_snippet")}))
     chain.append(add("error", "runtime_error", f"{failure.get('type')}: {str(failure.get('message'))[:80]}"))
-    if primary:
-        o = primary["original"]
-        chain.append(add("source", "source_location", f"{o['file']}:{o['line']}", {"function": primary.get("function")}))
-        chain.append(add("file", "file", o["file"]))
+    if source_location and source_location.get("resolved"):
+        chain.append(add("source", "source_location", f"{source_location['file']}:{source_location['line']}", {"function": source_location.get("function")}))
+        chain.append(add("file", "file", source_location["file"]))
     for a, b in zip(chain, chain[1:]):
         edges.append({"from": a, "to": b})
 
@@ -159,16 +187,8 @@ def build(payload: dict, frames: list[dict]) -> dict:
             "request_body": related.get("request_body"),
             "response_snippet": related.get("response_snippet"),
             "error": related.get("error"),
+            "server_error": server_error,
         }
-
-    source_location = None
-    if primary:
-        source_location = {"file": primary["original"]["file"], "line": primary["original"]["line"],
-                           "column": primary["original"].get("column"), "function": primary.get("function"), "resolved": True}
-    elif frames:
-        f0 = frames[0]
-        source_location = {"file": urlparse(f0.get("url", "")).path, "line": f0.get("line"), "column": f0.get("column"),
-                           "function": f0.get("function"), "resolved": False}
 
     return {
         "title": title,
@@ -202,10 +222,16 @@ def context_signals(payload: dict, events: list[dict], network: list[dict], trig
         body = " incl. response body" if related.get("response_snippet") else ""
         status = f"HTTP {related.get('status')}" if related.get("status") else "no response"
         signals.append({"kind": "network", "label": f"{related.get('method')} {related.get('path')} → {status}{body}"})
+        se = related.get("server_error")
+        if se:
+            h = se.get("handler") or {}
+            signals.append({"kind": "server", "label": f"Server-side exception captured in the backend process: {se.get('exception')} in {h.get('function', 'handler')}()"})
     if len(network) > 1:
         signals.append({"kind": "network_window", "label": f"{len(network)} requests in the preceding window"})
     if source_location:
-        if source_location.get("resolved"):
+        if source_location.get("side") == "server":
+            signals.append({"kind": "source", "label": f"Failing handler located from the server exception: {source_location['file']}:{source_location['line']}"})
+        elif source_location.get("resolved"):
             signals.append({"kind": "source", "label": f"Stack source-mapped to {source_location['file']}:{source_location['line']}"})
         else:
             signals.append({"kind": "source", "label": "Bundle stack location (no source map available)"})
@@ -237,7 +263,8 @@ def build_replay_plan(events: list[dict], route: str, related: dict | None, fp: 
     for i, ev in enumerate(events):
         if ev.get("kind") == "navigation" and ev.get("to") == route:
             start = i
-    steps: list[dict] = [{"id": "s0", "action": "navigate", "route": route, "label": f"Open {route}"}]
+    steps: list[dict] = [{"id": "s0", "action": "navigate", "route": route, "label": f"Open {route}",
+                          "from": next((ev.get("from") for ev in reversed(events) if ev.get("kind") == "navigation" and ev.get("to") == route and ev.get("from")), None)}]
     last_click_ts = None
     for i, ev in enumerate(events[start:], start=start):
         kind = ev.get("kind")

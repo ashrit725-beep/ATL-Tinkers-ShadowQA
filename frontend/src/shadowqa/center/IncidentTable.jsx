@@ -20,7 +20,7 @@ export function IncidentTable({ incidents, bridge }) {
             <thead>
               <tr className="text-left text-[10px] uppercase tracking-[0.08em] text-[#667081]">
                 <th className="px-2 py-1.5 font-semibold">Time</th><th className="px-2 py-1.5 font-semibold">Incident</th><th className="px-2 py-1.5 font-semibold">Cause</th>
-                <th className="px-2 py-1.5 font-semibold">Risk</th><th className="px-2 py-1.5 font-semibold">Conf.</th><th className="px-2 py-1.5 font-semibold">End-to-end</th><th className="px-2 py-1.5 font-semibold">Status</th>
+                <th className="px-2 py-1.5 font-semibold">Risk</th><th className="px-2 py-1.5 font-semibold hidden md:table-cell">Conf.</th><th className="px-2 py-1.5 font-semibold hidden md:table-cell">End-to-end</th><th className="px-2 py-1.5 font-semibold">Status</th>
               </tr>
             </thead>
             <tbody>
@@ -30,8 +30,8 @@ export function IncidentTable({ incidents, bridge }) {
                   <td className="px-2 py-2 text-[#eef2f6]">{r.title}{r.source === "qa" && <Badge tone="ml-2 text-[#7c83f5] border-[#7c83f5]/40">qa</Badge>}</td>
                   <td className="px-2 py-2 font-mono text-[#37b6d3] whitespace-nowrap">{shortPath(r.diagnosis?.cause_location || r.source_location?.file || "—")}</td>
                   <td className="px-2 py-2">{r.risk?.level ? <Badge tone={r.risk.level === "LOW" ? "text-[#4fd6a3] border-[#2fbf8a]/40" : r.risk.level === "MEDIUM" ? "text-[#f2b95a] border-[#e8a33c]/40" : "text-[#ff8d7f] border-[#f0533f]/40"}>{r.risk.level}</Badge> : "—"}</td>
-                  <td className="px-2 py-2 font-mono text-[#98a3b3]">{pct(r.diagnosis?.confidence)}</td>
-                  <td className="px-2 py-2 font-mono text-[#98a3b3]">{ms(r.telemetry?.total_ms)}</td>
+                  <td className="px-2 py-2 font-mono text-[#98a3b3] hidden md:table-cell">{pct(r.diagnosis?.confidence)}</td>
+                  <td className="px-2 py-2 font-mono text-[#98a3b3] hidden md:table-cell">{ms(r.telemetry?.total_ms)}</td>
                   <td className="px-2 py-2"><Badge tone={STATUS_TONE[r.status] || "text-[#98a3b3] border-white/10"} testid={`cc-status-${r.id}`}>{r.status.replace(/_/g, " ")}</Badge></td>
                 </tr>
               ))}

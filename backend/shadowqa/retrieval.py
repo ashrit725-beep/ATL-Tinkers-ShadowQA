@@ -35,6 +35,18 @@ def _add(files: list[dict], seen: set[str], ws: Workspace, rel: str, reason: str
     seen.add(rel)
 
 
+def _add_callers(files: list[dict], seen: set[str], ws: Workspace, hit: dict) -> None:
+    """The UI that invokes a failing client call (e.g. the page rendering `fetchTickets()`): success selectors live there."""
+    m = re.search(r"export\s+(?:const|function|async function)\s+(\w+)", hit.get("text") or "")
+    if not m:
+        return
+    name = m.group(1)
+    for caller in ws.grep(rf"\b{re.escape(name)}\(", exts=(".js", ".jsx", ".ts", ".tsx"), max_results=4):
+        if caller["path"] != hit["path"] and not caller["path"].endswith(".test.js"):
+            _add(files, seen, ws, caller["path"], f"UI calling {name}()", caller["line"])
+            break
+
+
 def _relative_imports(text: str, rel: str, ws: Workspace) -> list[str]:
     out: list[str] = []
     base = Path(rel).parent
@@ -75,6 +87,8 @@ def retrieve(ws: Workspace, incident: dict, extra_paths: list[str] | None = None
                                exts=(".py", ".js", ".jsx", ".ts", ".tsx"), max_results=6):
                 kind = "backend route handler" if hit["path"].endswith(".py") else "client call site"
                 _add(files, seen, ws, hit["path"], f"{kind} for {related.get('method')} {path}", hit["line"])
+                if kind == "client call site":
+                    _add_callers(files, seen, ws, hit)
 
     component = incident.get("component")
     if component and re.match(r"^[A-Z][A-Za-z0-9_]+$", component):

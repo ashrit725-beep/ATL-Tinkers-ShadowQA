@@ -83,6 +83,11 @@
       "expectations": { "request": { "method": "GET", "path": "/api/demo/help/faq" }, "ui": { "selector": "[data-testid=\"faq-answer-1\"]" } }
     },
     {
+      "name": "Support tickets",
+      "steps": [{ "action": "navigate", "route": "/help", "label": "Open help" }],
+      "expectations": { "request": { "method": "GET", "path": "/api/demo/support/tickets" }, "ui": { "selector": "[data-testid=\"help-ticket-list\"]" } }
+    },
+    {
       "name": "Settings",
       "steps": [
         { "action": "navigate", "route": "/settings", "label": "Open settings" },

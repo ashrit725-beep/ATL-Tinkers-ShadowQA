@@ -3,11 +3,12 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-git checkout -- frontend/src/demo/api/payments.js frontend/src/demo/lib/promo.js frontend/src/demo/api/store.js 2>/dev/null || true
+git checkout -- frontend/src/demo/api/payments.js frontend/src/demo/lib/promo.js frontend/src/demo/api/store.js backend/demo_store/router.py 2>/dev/null || true
 # Pristine (buggy) copies are the source of truth — the same files the bridge's /demo/reset uses.
 cp scripts/demo_bugs/payments.js frontend/src/demo/api/payments.js
 cp scripts/demo_bugs/promo.js frontend/src/demo/lib/promo.js
 cp scripts/demo_bugs/store.js frontend/src/demo/api/store.js
+cp scripts/demo_bugs/router.py backend/demo_store/router.py
 for b in $(git branch --list 'shadowqa/*' | tr -d ' *'); do git branch -D "$b" >/dev/null; done
 
 DB_NAME=$(sed -nE 's/^DB_NAME=//p' backend/.env | tr -d '"')

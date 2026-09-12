@@ -14,3 +14,4 @@ export const fetchAccount = () => request("/account").then((data) => data.accoun
 export const saveAccount = (account) => request("/account", { method: "PUT", body: account });
 export const fetchFaq = () => request("/help/faq");
 export const submitSupport = (body) => request("/support", { method: "POST", body });
+export const fetchTickets = () => request("/support/tickets");

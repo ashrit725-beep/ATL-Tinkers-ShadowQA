@@ -59,15 +59,27 @@ export class ReplayEngine {
     return el;
   }
 
+  async goto(route, loose = false) {
+    const before = location.pathname;
+    if (before !== route) {
+      history.pushState({}, "", route);
+      window.dispatchEvent(new PopStateEvent("popstate", { state: {} }));
+    }
+    await this.waitFor(() => location.pathname === route || (loose && location.pathname !== before), 3000);
+    await sleep(120);
+  }
+
   async execute(step, values) {
     switch (step.action) {
       case "navigate": {
-        if (location.pathname !== step.route) {
-          history.pushState({}, "", step.route);
-          window.dispatchEvent(new PopStateEvent("popstate", { state: {} }));
+        // Already on the failure route (e.g. right after the reload): hop away first so the screen re-mounts and its
+        // mount-time requests happen inside the observed window — otherwise "request not observed" would be a false failure.
+        if (location.pathname === step.route) {
+          const away = step.from && step.from !== step.route ? step.from : step.route === "/" ? "/__shadowqa_remount" : "/";
+          await this.goto(away, true);
+          await this.settle();
         }
-        await this.waitFor(() => location.pathname === step.route, 3000);
-        await sleep(120);
+        await this.goto(step.route);
         return;
       }
       case "fill": {

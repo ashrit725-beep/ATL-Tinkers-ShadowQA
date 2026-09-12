@@ -19,7 +19,7 @@ Everything on the critical path is real: real browser instrumentation, real sour
 ```
 frontend/src/shadowqa/      Runtime SDK (vanilla JS, Shadow-DOM overlay) — observation, correlation hints,
                             detector, capture, replay engine, QA runner, memory heartbeat, Zero-UI overlay
-frontend/src/demo/          Lumen Supply Co. — the demonstration storefront (three realistic bugs; pristine copies in scripts/demo_bugs/)
+frontend/src/demo/          Lumen Supply Co. — the demonstration storefront (four realistic bugs incl. one backend bug; pristine copies in scripts/demo_bugs/)
 frontend/src/shadowqa/center/  ShadowQA Command Center (/shadowqa): incident history, health, memory, agent telemetry, autonomy policy
 backend/shadowqa/           Workspace bridge, source maps, correlation engine, context graph, retrieval,
                             AI orchestrator, patch engine, risk engine, validation engine, git, memory, QA, audit
@@ -63,6 +63,7 @@ A standalone chatbot receives an error message. ShadowQA receives **the failing 
 |---|---|---|
 | Zero-UI / ambient — no chatbot, appears only when needed | `shadowqa/overlay/` (Shadow DOM dock, 22 px status dot) | Browse the store: nothing but a dim dot. Click **Pay** with the checkout bug: the card rises within ~1 s |
 | Real browser instrumentation | `shadowqa/observe/{runtime,network,interaction}.js`, bounded `RingBuffer(140)` | Inspector → **Timeline** / **Network** |
+| Server-side observation (5xx → failing handler) | `backend/shadowqa/server_sdk.py` (ASGI middleware, re-raises) | Help → *Your tickets*: card shows `demo_store/router.py:223`, chips **server traceback · server handler** |
 | Correlation engine + context graph | `backend/shadowqa/correlation.py` | Card header chain `Click 'Pay' → POST … → HTTP 422 → TypeError`; Inspector → **Graph** |
 | Source maps → exact file:line | `backend/shadowqa/sourcemap.py` (VLQ decoder) | Card shows `demo/pages/Checkout.jsx:31`; Inspector → **Source** highlights the line |
 | Symptom ≠ cause diagnosis | `backend/shadowqa/orchestrator.py`, `retrieval.py` | Exception surfaces in `Checkout.jsx`, root cause pinned in `api/payments.js` |
@@ -77,6 +78,6 @@ A standalone chatbot receives an error message. ShadowQA receives **the failing 
 | Observability & audit | `db.py` (`sqa_audit`, `sqa_llm_log`), telemetry per stage | Inspector → **Agent** |
 | Graceful degradation | `views.renderBridgeError / renderUnsafe` | Stop the bridge or the LLM: the failure is still captured and explained |
 | Delivery beyond one app | `extension/` (Chrome MV3), `yarn build:sdk` | Load the extension on any localhost app |
-| Tests | `backend/tests/` (38 pytest), `frontend/src/**/*.test.js` (Jest) | `cd backend && pytest` · `cd frontend && yarn test --watchAll=false` |
+| Tests | `backend/tests/` (52 pytest), `frontend/src/**/*.test.js` (Jest) | `cd backend && pytest` · `cd frontend && yarn test --watchAll=false` |
 
-Measured on the flagship checkout bug: detection < 1 s, diagnosis 12–20 s, validation 3–6 s, replay 4–6 s — **~30 s from broken click to verified fix**, no prompt typed.
+Measured on the flagship checkout bug: detection < 1 s, diagnosis 12–20 s, validation 3–6 s, replay 4–6 s — **~30 s from broken click to verified fix**, no prompt typed. The backend tickets bug (HTTP 500, no client exception) verifies in ~28 s: server exception → `router.py:223` → 1-line projection fix → the bridge restarts itself → replay renders the list.

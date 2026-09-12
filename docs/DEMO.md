@@ -4,14 +4,15 @@
 * Backend `.env`: `ANTHROPIC_API_KEY` / `OPENAI_API_KEY`, `SHADOWQA_BRIDGE_TOKEN`, `SHADOWQA_AUTONOMY=auto_low`, `SHADOWQA_DEV_SERVER_URL=http://localhost:3000`, optional `GITHUB_REPO=owner/repo` + `GITHUB_TOKEN`.
 * Frontend `.env`: `REACT_APP_SHADOWQA_TOKEN` (same token), `DISABLE_EMERGENT_OVERLAY=true` (ShadowQA owns runtime-error UX).
 * Demo account: `demo@lumen.supply` / `lumen-demo`.
-* Reset between runs: `scripts/reset_demo.sh` or **Reset demo bugs** in the Command Center (`/shadowqa`) — restores all three bugs from `scripts/demo_bugs/`, clears ShadowQA memory, deletes `shadowqa/*` branches.
+* Reset between runs: `scripts/reset_demo.sh` or **Reset demo bugs** in the Command Center (`/shadowqa`) — restores all four bugs from `scripts/demo_bugs/`, clears ShadowQA memory, deletes `shadowqa/*` branches.
 
-## The three intentional bugs
+## The four intentional bugs
 | Where | Symptom | Root cause | Expected fix |
 |---|---|---|---|
 | Checkout → **Pay** | `POST /api/demo/payment` → 422, then `TypeError: Cannot read properties of undefined (reading 'toUpperCase')` in `pages/Checkout.jsx` | `api/payments.js` sends `total`, the gateway contract requires `amount` | 1-line key rename in `payments.js` (cause ≠ symptom file) |
 | Cart → promo code `lumen20` → **Apply** | `TypeError: Cannot read properties of undefined (reading 'rate')` in `lib/promo.js` | lookup is case-sensitive although codes are documented as case-insensitive | normalise the key with `.toUpperCase()` |
 | Orders → open **LUM-8842** → **Track shipment** | `GET /api/demo/orders/LUM-8842/tracking` → **200**, then `TypeError: Cannot read properties of undefined (reading 'events')` in `pages/OrderDetail.jsx` | `api/store.js` still unwraps `data.tracking` from a response the API stopped wrapping (v2 contract) | drop the `.then((data) => data.tracking)` in `store.js` (a *successful* request that still breaks the UI — the response-body sample ShadowQA captured shows the drift) |
+| **Help** (after a nav click) → *Your tickets* | `GET /api/demo/support/tickets` → **500**, **no JavaScript exception** — the page degrades gracefully ("We couldn't load your tickets") | `backend/demo_store/router.py` returns raw Mongo documents (`ObjectId` is not JSON-serialisable) | add the `{"_id": 0}` projection — a **backend** patch: the server observer joins the 500 to the exception + `list_support_tickets()` at `router.py:223`, `py_compile` + `pyflakes` validation, the bridge restarts itself and resumes the pipeline on boot, then the replay proves the list renders (~28 s, RISK LOW, autonomous) |
 
 Nothing about these bugs is known to ShadowQA — the diagnosis is produced from live context + workspace source.
 

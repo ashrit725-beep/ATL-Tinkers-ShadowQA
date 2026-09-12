@@ -10,6 +10,7 @@ DEMO_BUG_FILES = {
     "scripts/demo_bugs/payments.js": "frontend/src/demo/api/payments.js",
     "scripts/demo_bugs/promo.js": "frontend/src/demo/lib/promo.js",
     "scripts/demo_bugs/store.js": "frontend/src/demo/api/store.js",
+    "scripts/demo_bugs/router.py": "backend/demo_store/router.py",
 }
 
 SCENARIOS = [
@@ -19,6 +20,8 @@ SCENARIOS = [
      "symptom": "TypeError reading 'rate' in promo.js", "cause": "case-sensitive lookup of a case-insensitive code"},
     {"id": "tracking", "title": "Order detail → Track shipment", "file": "frontend/src/demo/api/store.js",
      "symptom": "GET …/tracking → 200, TypeError reading 'events' in OrderDetail.jsx", "cause": "client unwraps `d.tracking` from a response that is no longer wrapped"},
+    {"id": "tickets", "title": "Help → Your tickets (backend)", "file": "backend/demo_store/router.py",
+     "symptom": "GET /api/demo/support/tickets → 500, no JS exception (UI degrades gracefully)", "cause": "handler returns raw Mongo documents — ObjectId is not JSON-serialisable"},
 ]
 
 
